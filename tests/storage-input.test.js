@@ -37,7 +37,7 @@ test('历史记录未提升时不重复写，相同最快成绩不覆盖', () =>
   assert.equal(writes, 1)
 })
 
-test('HUD 按钮避开安全区与胶囊，暂停态不暴露暂停按钮', () => {
+test('HUD 图鉴与暂停按钮避开安全区和胶囊且互不重叠，图鉴态只暴露关闭按钮', () => {
   const layout = computeLayout({
     width: 844,
     height: 390,
@@ -46,8 +46,19 @@ test('HUD 按钮避开安全区与胶囊，暂停态不暴露暂停按钮', () =
     menuButton: { left: 704, top: 10, width: 88, height: 32 }
   })
   const running = uiRects(layout, 'RUNNING')
-  assert.equal(running.pause.x >= layout.playable.left, true)
-  assert.equal(running.pause.x + running.pause.width <= 704, true)
+  assert.deepEqual(Object.keys(running).sort(), ['catalog', 'pause'])
+  for (const rect of [running.catalog, running.pause]) {
+    assert.equal([rect.x, rect.y, rect.width, rect.height].every(Number.isFinite), true)
+    assert.equal(rect.x >= layout.playable.left, true)
+    assert.equal(rect.x + rect.width <= 704, true)
+    assert.equal(rect.y >= layout.safeTop, true)
+  }
+  assert.equal(running.catalog.x + running.catalog.width <= running.pause.x, true)
+  const catalog = uiRects(layout, 'CATALOG')
+  assert.deepEqual(Object.keys(catalog), ['catalogClose'])
+  assert.equal(catalog.catalogClose.x >= layout.playable.left, true)
+  assert.equal(catalog.catalogClose.x + catalog.catalogClose.width <= 704, true)
+  assert.equal(catalog.catalogClose.y >= layout.safeTop, true)
   assert.deepEqual(Object.keys(uiRects(layout, 'PAUSED')).sort(), ['quit', 'resume'])
   assert.deepEqual(Object.keys(uiRects(layout, 'RESULT')).sort(), ['haptic', 'home', 'retry', 'sound'])
 })
@@ -68,4 +79,26 @@ test('UI 捕获与移动捕获互斥，拖出按钮不会误触', () => {
   input.handle('end', { id: 2, x: 390, y: 250 }, layout, 'RUNNING')
   assert.equal(input.move.active, false)
   assert.equal(input.move.released, true)
+})
+
+test('图鉴态只允许关闭按钮，场景拖动和原 HUD 按钮都不穿透', () => {
+  const actions = []
+  const input = new InputController((action) => actions.push(action))
+  const layout = computeLayout({ width: 800, height: 450, dpr: 1 })
+  const running = uiRects(layout, 'RUNNING')
+  const close = uiRects(layout, 'CATALOG').catalogClose
+
+  input.handle('start', { id: 1, x: 300, y: 250 }, layout, 'CATALOG')
+  input.handle('move', { id: 1, x: 390, y: 250 }, layout, 'CATALOG')
+  input.handle('end', { id: 1, x: 390, y: 250 }, layout, 'CATALOG')
+  assert.equal(input.move.active, false)
+  assert.equal(input.moveId, null)
+
+  input.handle('start', { id: 2, x: running.pause.x + 10, y: running.pause.y + 10 }, layout, 'CATALOG')
+  input.handle('end', { id: 2, x: running.pause.x + 10, y: running.pause.y + 10 }, layout, 'CATALOG')
+  assert.deepEqual(actions, [])
+
+  input.handle('start', { id: 3, x: close.x + close.width / 2, y: close.y + close.height / 2 }, layout, 'CATALOG')
+  input.handle('end', { id: 3, x: close.x + close.width / 2, y: close.y + close.height / 2 }, layout, 'CATALOG')
+  assert.deepEqual(actions, ['catalogClose'])
 })

@@ -490,11 +490,12 @@
       }
       function fishVisualMargins(fish) {
         const facingRight = (fish.direction || 1) >= 0;
+        const strokePadding = Math.max(2.2, fish.height * 0.045) / 2;
         return {
-          left: fish.width * (facingRight ? 0.65 : 0.42),
-          right: fish.width * (facingRight ? 0.42 : 0.65),
-          top: fish.height * 0.5,
-          bottom: fish.height * 0.5
+          left: fish.width * (facingRight ? 0.65 : 0.42) + strokePadding,
+          right: fish.width * (facingRight ? 0.42 : 0.65) + strokePadding,
+          top: fish.height * 0.5 + strokePadding,
+          bottom: fish.height * 0.5 + strokePadding
         };
       }
       function grassBody(grass) {
@@ -552,6 +553,29 @@
           menuButton: menu
         };
       }
+      function catalogGeometry(layout) {
+        const outer = clamp(Math.min(layout.width, layout.height) * 0.025, 8, 18);
+        const safeLeft = layout.playable.left;
+        const safeRight = layout.playable.right;
+        const safeTop = Math.max(0, layout.safeTop || 0);
+        const safeBottom = layout.playable.bottom;
+        const safeWidth = Math.max(1, safeRight - safeLeft);
+        const safeHeight = Math.max(1, safeBottom - safeTop);
+        const width = Math.max(1, Math.min(1e3, safeWidth - outer * 2));
+        const height = Math.max(1, Math.min(520, safeHeight - outer * 2));
+        const x = safeLeft + (safeWidth - width) / 2;
+        const y = safeTop + (safeHeight - height) / 2;
+        const closeSize = Math.min(44, Math.max(1, height - 16));
+        const preferredCloseX = x + width - closeSize - 8;
+        const capsuleCloseX = layout.menuButton ? layout.menuButton.left - closeSize - 8 : preferredCloseX;
+        const close = {
+          x: Math.max(x + 8, Math.min(preferredCloseX, capsuleCloseX)),
+          y: y + 8,
+          width: closeSize,
+          height: closeSize
+        };
+        return { x, y, width, height, outer, close };
+      }
       function uiRects(layout, screenState) {
         const w = layout.width;
         const h = layout.height;
@@ -567,9 +591,14 @@
         };
         const menuLeft = layout.menuButton ? layout.menuButton.left : safeRight;
         const pauseX = Math.max(safeLeft + 120, Math.min(safeRight - 54, menuLeft - 58));
+        const catalogX = Math.max(safeLeft + 12, pauseX - 54);
         if (screenState === "HOME") return { ...settings, start: center(h * 0.58) };
-        if (screenState === "RUNNING") return { pause: { x: pauseX, y: top, width: 46, height: 38 } };
+        if (screenState === "RUNNING") return {
+          catalog: { x: catalogX, y: top, width: 46, height: 38 },
+          pause: { x: pauseX, y: top, width: 46, height: 38 }
+        };
         if (screenState === "PAUSED") return { resume: center(h * 0.44), quit: center(h * 0.61) };
+        if (screenState === "CATALOG") return { catalogClose: catalogGeometry(layout).close };
         if (screenState === "RESULT") return { ...settings, retry: center(h * 0.62), home: center(h * 0.78) };
         return {};
       }
@@ -581,7 +610,7 @@
         for (const [name, rect] of Object.entries(rects)) if (pointInRect(x, y, rect)) return name;
         return null;
       }
-      module.exports = { computeLayout, uiRects, pointInRect, hitUi };
+      module.exports = { computeLayout, catalogGeometry, uiRects, pointInRect, hitUi };
     }
   });
 
@@ -1175,6 +1204,7 @@
           this.spawnSeq = 0;
           this.screenState = "HOME";
           this.pausedFrom = null;
+          this.pauseView = null;
           this.orientationBlocked = !this.layout.isLandscape;
           this.hidden = false;
           this.resultLocked = false;
@@ -1219,6 +1249,7 @@
           this.setSeed(seed === void 0 ? (this.platform.now() >>> 0 ^ Math.imul(this.runId, 2654435761)) >>> 0 : seed);
           this.screenState = "RUNNING";
           this.pausedFrom = null;
+          this.pauseView = null;
           this.orientationBlocked = !this.layout.isLandscape;
           this.resultLocked = false;
           this.resultCommitted = false;
@@ -1319,8 +1350,8 @@
             fish.age += dt;
             fish.equalCooldown = decayTimer(fish.equalCooldown, dt);
             fish.x += fish.vx * dt;
-            fish.y = clamp(fish.baseY + Math.sin(fish.phase + fish.age * Math.PI * 2 / fish.period) * fish.amplitude, bounds.top + fish.height * 0.5, bounds.bottom - fish.height * 0.5);
             const visual = fishVisualMargins(fish);
+            fish.y = clamp(fish.baseY + Math.sin(fish.phase + fish.age * Math.PI * 2 / fish.period) * fish.amplitude, bounds.top + visual.top, bounds.bottom - visual.bottom);
             fish.entering = fish.side === "left" ? fish.x - visual.left < bounds.left : fish.x + visual.right > bounds.right;
             const departed = fish.direction > 0 ? fish.x - visual.left > bounds.right : fish.x + visual.right < bounds.left;
             if (departed) this.releaseFish(fish);
@@ -1391,7 +1422,7 @@
           fish.level = clamp(Math.floor(level), 1, 10);
           fish.side = side;
           fish.direction = side === "left" ? 1 : -1;
-          fish.visualId = randomize ? this.appearanceRng.int(0, 4) : fish.spawnSeq % 5;
+          fish.visualId = fish.level - 1;
           const size = Math.min(this.layout.width * GAME_CONFIG.player.maxWidthRatio, this.layout.width * GAME_CONFIG.player.baseWidthRatio * playerSizeScale(fish.level));
           fish.width = size;
           fish.height = size * GAME_CONFIG.player.bodyAspect;
@@ -1619,6 +1650,7 @@
           if (this.resultLocked) return;
           this.resultLocked = true;
           this.screenState = "DEAD";
+          this.pauseView = null;
           this.cinematicClock = 0;
           this.input.clear(true);
           this.player.vx = 0;
@@ -1630,6 +1662,7 @@
           if (this.resultLocked) return;
           this.resultLocked = true;
           this.screenState = "WIN";
+          this.pauseView = null;
           this.cinematicClock = 0;
           this.input.clear(true);
           this.result = this.makeResult(true, null);
@@ -1642,6 +1675,7 @@
           if (!this.resultLocked || this.resultCommitted) return;
           this.resultCommitted = true;
           this.screenState = "RESULT";
+          this.pauseView = null;
           this.result.saved = this.saveManager.commitResult(this.result);
           this.emit("game_result", { ...this.result });
         }
@@ -1649,6 +1683,7 @@
           if (this.screenState !== "RUNNING") return false;
           this.pausedFrom = "RUNNING";
           this.screenState = "PAUSED";
+          this.pauseView = reason === "catalog" ? "CATALOG" : "MENU";
           this.input.clear(true);
           this.player.vx = 0;
           this.player.vy = 0;
@@ -1659,6 +1694,7 @@
           if (this.screenState !== "PAUSED" || this.orientationBlocked) return false;
           this.screenState = "RUNNING";
           this.pausedFrom = null;
+          this.pauseView = null;
           this.input.clear(true);
           this.emit("game_resumed", {});
           return true;
@@ -1667,6 +1703,7 @@
           if (!["RUNNING", "PAUSED"].includes(this.screenState)) return false;
           this.releaseAllEntities();
           this.screenState = "HOME";
+          this.pauseView = null;
           this.resultLocked = false;
           this.resultCommitted = false;
           this.result = null;
@@ -1677,6 +1714,8 @@
         handleAction(action) {
           this.emit("ui_action", { action });
           if (action === "start" && this.screenState === "HOME") this.startRun();
+          else if (action === "catalog" && this.screenState === "RUNNING") this.pause("catalog");
+          else if (action === "catalogClose" && this.screenState === "PAUSED" && this.pauseView === "CATALOG") this.resume();
           else if (action === "pause" && this.screenState === "RUNNING") this.pause("user");
           else if (action === "resume" && this.screenState === "PAUSED") this.resume();
           else if (action === "quit" && this.screenState === "PAUSED") this.quitRun();
@@ -1684,6 +1723,7 @@
           else if (action === "home" && this.screenState === "RESULT") {
             this.releaseAllEntities();
             this.screenState = "HOME";
+            this.pauseView = null;
             this.result = null;
             this.resultLocked = false;
             this.resultCommitted = false;
@@ -1697,8 +1737,11 @@
             this.emit("setting_changed", { key: "hapticEnabled", value: enabled });
           }
         }
+        interactionState() {
+          return this.screenState === "PAUSED" && this.pauseView === "CATALOG" ? "CATALOG" : this.screenState;
+        }
         handlePointer(type, pointer) {
-          return this.input.handle(type, pointer, this.layout, this.screenState);
+          return this.input.handle(type, pointer, this.layout, this.interactionState());
         }
         onHide() {
           this.hidden = true;
@@ -1751,6 +1794,7 @@
             grass.y = clamp(grass.y, legal.yMin, legal.yMax);
           }
           this.layout = next;
+          this.input.clear(true);
           this.orientationBlocked = !next.isLandscape;
           this.updatePlayerDimensions();
           this.clampPlayerToBounds();
@@ -1807,7 +1851,8 @@
           const baseY = Number.isFinite(fish.baseY) ? fish.baseY : fish.y;
           const amplitude = Number.isFinite(fish.amplitude) ? fish.amplitude : 0;
           const phase = Number.isFinite(fish.phase) ? fish.phase : 0;
-          const y = moveTime <= 0 ? fish.y : clamp(baseY + Math.sin(phase + age * Math.PI * 2 / period) * amplitude, bounds.top + fish.height * 0.5, bounds.bottom - fish.height * 0.5);
+          const visual = fishVisualMargins(fish);
+          const y = moveTime <= 0 ? fish.y : clamp(baseY + Math.sin(phase + age * Math.PI * 2 / period) * amplitude, bounds.top + visual.top, bounds.bottom - visual.bottom);
           return { x: fish.x + fish.vx * moveTime, y, rx: fish.width * 0.35, ry: fish.height * 0.35 };
         }
         enforceGrassPopulationCap() {
@@ -1848,6 +1893,7 @@
           return {
             version: GAME_CONFIG.version,
             screenState: this.screenState,
+            pauseView: this.pauseView,
             orientationBlocked: this.orientationBlocked,
             layout: this.layout,
             tick: this.tick,
@@ -1884,17 +1930,37 @@
       var { GAME_CONFIG, upgradeNeed, playerSizeScale } = require_game_config();
       var { clamp, relationFor } = require_math();
       var { fishBody, grassBody } = require_entities();
-      var { uiRects } = require_layout();
+      var { catalogGeometry, uiRects } = require_layout();
       var COLORS = {
         ink: "#eaffff",
         muted: "#9bd5df",
         panel: "rgba(3,27,46,.86)",
         panelLine: "rgba(145,229,238,.34)",
-        edible: "#55e68a",
-        equal: "#ffd35a",
         lethal: "#ff6174",
         accent: "#59e4ef"
       };
+      var FISH_LEVEL_VISUALS = Object.freeze([
+        Object.freeze({ id: "silver-minnow", name: "\u94F6\u9CDE\u9C7C", body: "slender", tail: "fork", fin: "tiny", pattern: "shine", primary: "#8de9f2", secondary: "#26788f", accent: "#e8feff", eyeX: 0.27 }),
+        Object.freeze({ id: "lime-drop", name: "\u9752\u9732\u9C7C", body: "drop", tail: "paddle", fin: "triangle", pattern: "band", primary: "#c8ea72", secondary: "#5c7a35", accent: "#f4ffd2", eyeX: 0.25 }),
+        Object.freeze({ id: "violet-butterfly", name: "\u8776\u7FFC\u9C7C", body: "diamond", tail: "swallow", fin: "veil", pattern: "diagonal", primary: "#c8a8ff", secondary: "#6551a6", accent: "#f0e7ff", eyeX: 0.25 }),
+        Object.freeze({ id: "coral-puffer", name: "\u73CA\u745A\u6CB3\u8C5A", body: "orb", tail: "fan", fin: "spikes", pattern: "dots", primary: "#ff94a6", secondary: "#9b3f5c", accent: "#ffe1e7", eyeX: 0.18 }),
+        Object.freeze({ id: "sun-moonfish", name: "\u592A\u9633\u6708\u9C7C", body: "moon", tail: "crescent", fin: "sail", pattern: "eyespot", primary: "#ffd166", secondary: "#a65c2e", accent: "#fff0ae", eyeX: 0.23 }),
+        Object.freeze({ id: "blue-swordfish", name: "\u84DD\u5251\u9C7C", body: "sword", tail: "deepFork", fin: "swept", pattern: "zigzag", primary: "#80c7ff", secondary: "#27649a", accent: "#dff3ff", eyeX: 0.28 }),
+        Object.freeze({ id: "rose-lionfish", name: "\u72EE\u5B50\u9C7C", body: "lion", tail: "rayFan", fin: "rays", pattern: "wideBands", primary: "#f5e3b3", secondary: "#8a486f", accent: "#fff7dc", eyeX: 0.23 }),
+        Object.freeze({ id: "slate-shark", name: "\u7070\u7901\u9CA8", body: "shark", tail: "shark", fin: "shark", pattern: "belly", primary: "#a8c6d4", secondary: "#334c60", accent: "#edf8fb", eyeX: 0.29 }),
+        Object.freeze({ id: "amber-armor", name: "\u94E0\u7532\u9C7C", body: "armor", tail: "trident", fin: "double", pattern: "plates", primary: "#f0a56a", secondary: "#6d4057", accent: "#ffe1b5", eyeX: 0.25 }),
+        Object.freeze({ id: "gold-dragon", name: "\u738B\u51A0\u9F99\u9C7C", body: "dragon", tail: "doubleLeaf", fin: "crown", pattern: "scales", primary: "#ffe36e", secondary: "#5a3e91", accent: "#fff6bd", eyeX: 0.24 })
+      ]);
+      var PUFFER_DOTS = Object.freeze([
+        Object.freeze([-0.16, -0.16, 0.075]),
+        Object.freeze([0.02, -0.24, 0.055]),
+        Object.freeze([0.12, 0.1, 0.065]),
+        Object.freeze([-0.09, 0.22, 0.05])
+      ]);
+      function fishVisualForLevel(level) {
+        const normalized = Math.max(1, Math.min(10, Math.floor(Number(level) || 1)));
+        return FISH_LEVEL_VISUALS[normalized - 1];
+      }
       var CanvasRenderer = class {
         constructor(canvas2) {
           this.canvas = canvas2;
@@ -1914,7 +1980,7 @@
           this.canvas.height = Math.round(layout.height * layout.dpr);
         }
         consumeEvents(events, snapshot) {
-          var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+          var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
           for (const event of events) {
             const data = event.data || {};
             if (event.type === "game_start" || event.type === "game_quit") {
@@ -1932,7 +1998,8 @@
                   width: (_g = data.width) != null ? _g : snapshot.player.width * 0.7,
                   height: (_h = data.height) != null ? _h : snapshot.player.height * 0.7,
                   direction: data.direction || 1,
-                  visualId: data.visualId || 0,
+                  visualId: (_i = data.visualId) != null ? _i : 0,
+                  level: (_l = (_j = data.fishLevel) != null ? _j : data.level) != null ? _l : ((_k = data.visualId) != null ? _k : 0) + 1,
                   age: 0,
                   life: 0.28
                 });
@@ -1943,8 +2010,8 @@
                     const angle = index / trailCount * Math.PI * 2;
                     this.addEffect({
                       kind: "comboTrail",
-                      x: (_i = data.x) != null ? _i : snapshot.player.x,
-                      y: (_j = data.y) != null ? _j : snapshot.player.y,
+                      x: (_m = data.x) != null ? _m : snapshot.player.x,
+                      y: (_n = data.y) != null ? _n : snapshot.player.y,
                       dx: Math.cos(angle) * (22 + index % 3 * 8),
                       dy: Math.sin(angle) * (18 + index % 2 * 7),
                       color: index % 2 ? "#ffe879" : "#8cfff1",
@@ -1957,7 +2024,7 @@
             } else if (event.type === "level_up") {
               for (let index = 0; index < 18; index += 1) this.addEffect({ kind: "spark", x: snapshot.player.x, y: snapshot.player.y, angle: index / 18 * Math.PI * 2, age: 0, life: 0.8 });
               this.addEffect({ kind: "upgradeRing", x: snapshot.player.x, y: snapshot.player.y, age: 0, life: 0.8 });
-              this.addEffect({ kind: "levelText", text: `\u5347\u7EA7\uFF01Lv.${(_k = data.level) != null ? _k : snapshot.player.level}`, age: 0, life: 0.8 });
+              this.addEffect({ kind: "levelText", text: `\u5347\u7EA7\uFF01Lv.${(_o = data.level) != null ? _o : snapshot.player.level}`, age: 0, life: 0.8 });
               const previousLevel = Math.max(1, Math.floor(Number(data.previous) || Math.max(1, snapshot.player.level - 1)));
               const previousWidth = Math.min(
                 snapshot.layout.width * GAME_CONFIG.player.maxWidthRatio,
@@ -1966,7 +2033,7 @@
               this.playerLevelTransition = {
                 fromWidth: previousWidth,
                 toWidth: snapshot.player.width,
-                toLevel: (_l = data.level) != null ? _l : snapshot.player.level,
+                toLevel: (_p = data.level) != null ? _p : snapshot.player.level,
                 life: GAME_CONFIG.timing.levelUpVisual
               };
             } else if (event.type === "equal_bounce") {
@@ -2077,7 +2144,7 @@
           ctx.fillStyle = "#a5eef4";
           ctx.font = `600 ${Math.max(14, height * 0.035)}px sans-serif`;
           ctx.fillText("\u5403\u6C34\u8349\u8D77\u6B65 \xB7 \u5403\u5C0F\u9C7C\u6210\u957F \xB7 \u8EB2\u907F\u5927\u9C7C", width * 0.5, height * 0.31);
-          this.drawFishShape({ x: width * 0.5, y: height * 0.42, width: width * 0.13, height: width * 0.067, direction: 1, visualId: 4, level: 6, player: true }, snapshot);
+          this.drawFishShape({ x: width * 0.5, y: height * 0.42, width: width * 0.13, height: width * 0.067, direction: 1, visualId: 5, level: 6, player: true }, snapshot);
           const save = snapshot.save;
           ctx.font = `500 ${Math.max(13, height * 0.03)}px sans-serif`;
           ctx.fillStyle = "#b8e6ea";
@@ -2096,12 +2163,14 @@
           for (const grass of snapshot.grass) if (grass.inUse && grass.active) this.drawGrass(grass);
           for (const fish of snapshot.fish) if (fish.inUse && fish.active) this.drawFishShape(fish, snapshot);
           for (const fish of snapshot.fish) if (fish.inUse && fish.pending) this.drawWarning(fish, snapshot.layout);
-          this.drawTutorialTarget(snapshot);
           this.drawPlayer(snapshot);
           this.drawEffects(snapshot);
           this.drawHud(snapshot);
           if (snapshot.screenState === "RUNNING") this.drawTutorial(snapshot);
-          if (snapshot.screenState === "PAUSED") this.drawPause(snapshot);
+          if (snapshot.screenState === "PAUSED") {
+            if (snapshot.pauseView === "CATALOG") this.drawCatalog(snapshot);
+            else this.drawPause(snapshot);
+          }
           if (snapshot.screenState === "DEAD") this.drawCinematicLabel(snapshot, "\u88AB\u5927\u9C7C\u5403\u6389\u4E86", "#ff9aa7");
           if (snapshot.screenState === "WIN") this.drawCinematicLabel(snapshot, "\u79F0\u9738\u6D77\u57DF\uFF01", "#ffe879");
         }
@@ -2194,107 +2263,368 @@
             ctx.stroke();
             ctx.globalAlpha = 1;
           }
-          this.drawFishShape({ ...player, direction: player.facing, visualId: 4, player: true }, snapshot, true);
+          this.drawFishShape({ ...player, direction: player.facing, visualId: player.level - 1, player: true }, snapshot, true);
           ctx.restore();
+        }
+        traceFishBody(body, w, h) {
+          const { ctx } = this;
+          ctx.beginPath();
+          if (body === "slender") {
+            ctx.ellipse(0, 0, w * 0.41, h * 0.3, 0, 0, Math.PI * 2);
+          } else if (body === "drop") {
+            ctx.moveTo(-w * 0.39, 0);
+            ctx.bezierCurveTo(-w * 0.23, -h * 0.34, w * 0.24, -h * 0.48, w * 0.4, -h * 0.08);
+            ctx.quadraticCurveTo(w * 0.42, 0, w * 0.4, h * 0.1);
+            ctx.bezierCurveTo(w * 0.22, h * 0.42, -w * 0.23, h * 0.34, -w * 0.39, 0);
+            ctx.closePath();
+          } else if (body === "diamond") {
+            ctx.moveTo(-w * 0.39, 0);
+            ctx.quadraticCurveTo(-w * 0.08, -h * 0.49, w * 0.34, -h * 0.2);
+            ctx.lineTo(w * 0.42, 0);
+            ctx.lineTo(w * 0.34, h * 0.2);
+            ctx.quadraticCurveTo(-w * 0.08, h * 0.49, -w * 0.39, 0);
+            ctx.closePath();
+          } else if (body === "orb") {
+            ctx.ellipse(-w * 0.02, 0, w * 0.34, h * 0.49, 0, 0, Math.PI * 2);
+          } else if (body === "moon") {
+            ctx.ellipse(-w * 0.01, 0, w * 0.37, h * 0.47, 0, 0, Math.PI * 2);
+          } else if (body === "sword") {
+            ctx.moveTo(-w * 0.42, 0);
+            ctx.quadraticCurveTo(-w * 0.08, -h * 0.34, w * 0.29, -h * 0.2);
+            ctx.lineTo(w * 0.42, -h * 0.025);
+            ctx.lineTo(w * 0.29, h * 0.11);
+            ctx.quadraticCurveTo(-w * 0.08, h * 0.32, -w * 0.42, 0);
+            ctx.closePath();
+          } else if (body === "lion") {
+            ctx.moveTo(-w * 0.39, 0);
+            ctx.bezierCurveTo(-w * 0.28, -h * 0.44, w * 0.26, -h * 0.49, w * 0.4, -h * 0.09);
+            ctx.lineTo(w * 0.42, h * 0.12);
+            ctx.bezierCurveTo(w * 0.12, h * 0.47, -w * 0.27, h * 0.38, -w * 0.39, 0);
+            ctx.closePath();
+          } else if (body === "shark") {
+            ctx.moveTo(-w * 0.42, h * 0.02);
+            ctx.quadraticCurveTo(-w * 0.08, -h * 0.38, w * 0.37, -h * 0.16);
+            ctx.lineTo(w * 0.42, h * 0.055);
+            ctx.quadraticCurveTo(w * 0.05, h * 0.35, -w * 0.42, h * 0.02);
+            ctx.closePath();
+          } else if (body === "armor") {
+            ctx.moveTo(-w * 0.4, 0);
+            ctx.lineTo(-w * 0.22, -h * 0.42);
+            ctx.lineTo(w * 0.22, -h * 0.42);
+            ctx.lineTo(w * 0.42, -h * 0.08);
+            ctx.lineTo(w * 0.37, h * 0.25);
+            ctx.lineTo(-w * 0.18, h * 0.43);
+            ctx.closePath();
+          } else {
+            ctx.moveTo(-w * 0.4, h * 0.02);
+            ctx.bezierCurveTo(-w * 0.3, -h * 0.48, w * 0.25, -h * 0.49, w * 0.41, -h * 0.12);
+            ctx.quadraticCurveTo(w * 0.42, h * 0.02, w * 0.38, h * 0.17);
+            ctx.bezierCurveTo(w * 0.18, h * 0.46, -w * 0.29, h * 0.46, -w * 0.4, h * 0.02);
+            ctx.closePath();
+          }
+        }
+        drawFishTail(style, w, h) {
+          const { ctx } = this;
+          ctx.fillStyle = style.secondary;
+          ctx.beginPath();
+          if (style.tail === "fork") {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.lineTo(-w * 0.63, -h * 0.32);
+            ctx.lineTo(-w * 0.52, 0);
+            ctx.lineTo(-w * 0.63, h * 0.32);
+          } else if (style.tail === "paddle") {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.quadraticCurveTo(-w * 0.62, -h * 0.4, -w * 0.59, 0);
+            ctx.quadraticCurveTo(-w * 0.62, h * 0.4, -w * 0.34, 0);
+          } else if (style.tail === "swallow") {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.lineTo(-w * 0.64, -h * 0.46);
+            ctx.lineTo(-w * 0.54, 0);
+            ctx.lineTo(-w * 0.64, h * 0.46);
+          } else if (style.tail === "fan") {
+            ctx.moveTo(-w * 0.31, 0);
+            ctx.quadraticCurveTo(-w * 0.53, -h * 0.28, -w * 0.56, -h * 0.18);
+            ctx.lineTo(-w * 0.56, h * 0.18);
+            ctx.quadraticCurveTo(-w * 0.53, h * 0.28, -w * 0.31, 0);
+          } else if (style.tail === "crescent") {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.quadraticCurveTo(-w * 0.64, -h * 0.43, -w * 0.61, -h * 0.2);
+            ctx.quadraticCurveTo(-w * 0.48, 0, -w * 0.61, h * 0.2);
+            ctx.quadraticCurveTo(-w * 0.64, h * 0.43, -w * 0.34, 0);
+          } else if (style.tail === "deepFork") {
+            ctx.moveTo(-w * 0.36, 0);
+            ctx.lineTo(-w * 0.65, -h * 0.4);
+            ctx.lineTo(-w * 0.49, -h * 0.05);
+            ctx.lineTo(-w * 0.49, h * 0.05);
+            ctx.lineTo(-w * 0.65, h * 0.4);
+          } else if (style.tail === "rayFan") {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.lineTo(-w * 0.62, -h * 0.48);
+            ctx.quadraticCurveTo(-w * 0.54, 0, -w * 0.62, h * 0.48);
+          } else if (style.tail === "shark") {
+            ctx.moveTo(-w * 0.36, 0);
+            ctx.lineTo(-w * 0.61, -h * 0.49);
+            ctx.lineTo(-w * 0.55, -h * 0.03);
+            ctx.lineTo(-w * 0.62, h * 0.26);
+          } else if (style.tail === "trident") {
+            ctx.moveTo(-w * 0.35, 0);
+            ctx.lineTo(-w * 0.63, -h * 0.38);
+            ctx.lineTo(-w * 0.54, -h * 0.08);
+            ctx.lineTo(-w * 0.64, 0);
+            ctx.lineTo(-w * 0.54, h * 0.08);
+            ctx.lineTo(-w * 0.63, h * 0.38);
+          } else {
+            ctx.moveTo(-w * 0.34, 0);
+            ctx.quadraticCurveTo(-w * 0.55, -h * 0.49, -w * 0.64, -h * 0.34);
+            ctx.quadraticCurveTo(-w * 0.53, 0, -w * 0.64, h * 0.34);
+            ctx.quadraticCurveTo(-w * 0.55, h * 0.49, -w * 0.34, 0);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+        drawFishFins(style, w, h) {
+          const { ctx } = this;
+          ctx.fillStyle = style.secondary;
+          ctx.strokeStyle = style.secondary;
+          ctx.lineWidth = Math.max(1.5, h * 0.045);
+          if (style.fin === "tiny") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.06, h * 0.18);
+            ctx.lineTo(w * 0.03, h * 0.39);
+            ctx.lineTo(w * 0.12, h * 0.16);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "triangle") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.12, -h * 0.22);
+            ctx.lineTo(w * 0.02, -h * 0.48);
+            ctx.lineTo(w * 0.14, -h * 0.2);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "veil") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.18, -h * 0.22);
+            ctx.quadraticCurveTo(0, -h * 0.5, w * 0.15, -h * 0.18);
+            ctx.lineTo(w * 0.06, -h * 0.08);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.14, h * 0.2);
+            ctx.quadraticCurveTo(0, h * 0.49, w * 0.16, h * 0.18);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "spikes") {
+            for (let spike = 0; spike < 6; spike += 1) {
+              const x = -w * 0.25 + spike * w * 0.09;
+              ctx.beginPath();
+              ctx.moveTo(x - w * 0.025, -h * 0.31);
+              ctx.lineTo(x, -h * (0.43 + spike % 2 * 0.05));
+              ctx.lineTo(x + w * 0.025, -h * 0.31);
+              ctx.closePath();
+              ctx.fill();
+            }
+          } else if (style.fin === "sail") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.2, -h * 0.23);
+            ctx.quadraticCurveTo(-w * 0.02, -h * 0.5, w * 0.18, -h * 0.21);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "swept") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.18, -h * 0.17);
+            ctx.lineTo(w * 0.08, -h * 0.43);
+            ctx.lineTo(w * 0.18, -h * 0.16);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "rays") {
+            for (let ray = 0; ray < 5; ray += 1) {
+              const x = -w * 0.18 + ray * w * 0.08;
+              ctx.beginPath();
+              ctx.moveTo(x, -h * 0.24);
+              ctx.lineTo(x - w * 0.04, -h * (0.45 + ray % 2 * 0.035));
+              ctx.stroke();
+            }
+          } else if (style.fin === "shark") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.13, -h * 0.17);
+            ctx.lineTo(w * 0.02, -h * 0.5);
+            ctx.lineTo(w * 0.14, -h * 0.14);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.fin === "double") {
+            for (let fin = 0; fin < 2; fin += 1) {
+              const x = -w * 0.14 + fin * w * 0.23;
+              ctx.beginPath();
+              ctx.moveTo(x - w * 0.07, -h * 0.22);
+              ctx.lineTo(x, -h * (0.46 - fin * 0.05));
+              ctx.lineTo(x + w * 0.07, -h * 0.2);
+              ctx.closePath();
+              ctx.fill();
+            }
+          } else {
+            for (let crown = 0; crown < 3; crown += 1) {
+              const x = -w * 0.16 + crown * w * 0.13;
+              ctx.beginPath();
+              ctx.moveTo(x - w * 0.055, -h * 0.21);
+              ctx.lineTo(x, -h * (0.49 - Math.abs(crown - 1) * 0.06));
+              ctx.lineTo(x + w * 0.055, -h * 0.2);
+              ctx.closePath();
+              ctx.fill();
+            }
+          }
+        }
+        drawFishPattern(style, w, h) {
+          const { ctx } = this;
+          ctx.fillStyle = style.accent;
+          ctx.strokeStyle = style.accent;
+          ctx.lineWidth = Math.max(1.5, h * 0.04);
+          if (style.pattern === "shine") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.25, -h * 0.08);
+            ctx.quadraticCurveTo(0, -h * 0.24, w * 0.22, -h * 0.08);
+            ctx.stroke();
+          } else if (style.pattern === "band") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.12, -h * 0.34);
+            ctx.lineTo(-w * 0.02, -h * 0.4);
+            ctx.lineTo(w * 0.02, h * 0.35);
+            ctx.lineTo(-w * 0.1, h * 0.3);
+            ctx.closePath();
+            ctx.fill();
+          } else if (style.pattern === "diagonal") {
+            for (let band = 0; band < 2; band += 1) {
+              const x = -w * 0.14 + band * w * 0.2;
+              ctx.beginPath();
+              ctx.moveTo(x - w * 0.08, -h * 0.34);
+              ctx.lineTo(x, -h * 0.4);
+              ctx.lineTo(x + w * 0.12, h * 0.31);
+              ctx.lineTo(x + w * 0.04, h * 0.36);
+              ctx.closePath();
+              ctx.fill();
+            }
+          } else if (style.pattern === "dots") {
+            for (const [x, y, radius] of PUFFER_DOTS) {
+              ctx.beginPath();
+              ctx.arc(w * x, h * y, h * radius, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          } else if (style.pattern === "eyespot") {
+            ctx.beginPath();
+            ctx.arc(-w * 0.08, 0, h * 0.14, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = style.secondary;
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.27, h * 0.2);
+            ctx.lineTo(w * 0.18, h * 0.2);
+            ctx.stroke();
+          } else if (style.pattern === "zigzag") {
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.25, -h * 0.08);
+            ctx.lineTo(-w * 0.08, h * 0.13);
+            ctx.lineTo(w * 0.04, -h * 0.1);
+            ctx.lineTo(w * 0.2, h * 0.1);
+            ctx.stroke();
+          } else if (style.pattern === "wideBands") {
+            for (let band = 0; band < 3; band += 1) ctx.fillRect(-w * 0.22 + band * w * 0.16, -h * 0.34, w * 0.055, h * 0.68);
+          } else if (style.pattern === "belly") {
+            ctx.beginPath();
+            ctx.ellipse(0, h * 0.16, w * 0.29, h * 0.16, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = style.secondary;
+            ctx.beginPath();
+            ctx.moveTo(w * 0.2, -h * 0.08);
+            ctx.lineTo(w * 0.12, h * 0.12);
+            ctx.stroke();
+          } else if (style.pattern === "plates") {
+            for (let plate = 0; plate < 3; plate += 1) {
+              const x = -w * 0.17 + plate * w * 0.17;
+              ctx.beginPath();
+              ctx.moveTo(x - w * 0.075, 0);
+              ctx.lineTo(x, -h * 0.24);
+              ctx.lineTo(x + w * 0.075, 0);
+              ctx.lineTo(x, h * 0.24);
+              ctx.closePath();
+              ctx.stroke();
+            }
+          } else {
+            for (let scale = 0; scale < 3; scale += 1) {
+              const x = -w * 0.15 + scale * w * 0.14;
+              ctx.beginPath();
+              ctx.arc(x, 0, h * 0.13, -1.1, 1.1);
+              ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.25, -h * 0.2);
+            ctx.quadraticCurveTo(0, -h * 0.34, w * 0.22, -h * 0.16);
+            ctx.stroke();
+          }
         }
         drawFishShape(fish, snapshot, alreadyTranslated = false) {
           const { ctx } = this;
           const direction = fish.direction || 1;
-          const palette = [
-            ["#69dbe5", "#257aa1"],
-            ["#f7b86b", "#d35c68"],
-            ["#b995ef", "#5b57a6"],
-            ["#7fd58e", "#258f74"],
-            ["#ffe379", "#17a9b2"]
-          ][fish.visualId % 5];
+          const level = Math.max(1, Math.min(10, Math.floor(Number(fish.level) || (Number(fish.visualId) || 0) + 1)));
+          const style = fishVisualForLevel(level);
           ctx.save();
           if (!alreadyTranslated) ctx.translate(fish.x, fish.y);
           ctx.scale(direction, 1);
           const w = fish.width;
           const h = fish.height;
-          ctx.fillStyle = palette[1];
-          ctx.beginPath();
-          ctx.moveTo(-w * 0.36, 0);
-          ctx.quadraticCurveTo(-w * 0.65, -h * 0.48, -w * 0.56, 0);
-          ctx.quadraticCurveTo(-w * 0.65, h * 0.48, -w * 0.36, 0);
-          ctx.fill();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          this.drawFishTail(style, w, h);
+          this.drawFishFins(style, w, h);
           const gradient = ctx.createLinearGradient(-w * 0.35, -h * 0.4, w * 0.42, h * 0.32);
-          gradient.addColorStop(0, palette[0]);
-          gradient.addColorStop(1, palette[1]);
+          gradient.addColorStop(0, style.primary);
+          gradient.addColorStop(1, style.secondary);
           ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.ellipse(0, 0, w * 0.42, h * 0.48, 0, 0, Math.PI * 2);
+          this.traceFishBody(style.body, w, h);
           ctx.fill();
+          ctx.save();
+          this.traceFishBody(style.body, w, h);
+          ctx.clip();
+          this.drawFishPattern(style, w, h);
           ctx.fillStyle = "rgba(255,255,255,.28)";
-          if (fish.visualId % 5 === 0) {
-            for (let stripe = -1; stripe <= 1; stripe += 1) ctx.fillRect(-w * 0.12 + stripe * w * 0.1, -h * 0.35, w * 0.035, h * 0.7);
-          } else if (fish.visualId % 5 === 1) {
-            ctx.beginPath();
-            ctx.arc(-w * 0.06, -h * 0.05, h * 0.1, 0, Math.PI * 2);
-            ctx.arc(w * 0.08, h * 0.12, h * 0.08, 0, Math.PI * 2);
-            ctx.fill();
-          } else if (fish.visualId % 5 === 2) {
-            ctx.beginPath();
-            ctx.moveTo(-w * 0.12, 0);
-            ctx.lineTo(0, -h * 0.3);
-            ctx.lineTo(w * 0.12, 0);
-            ctx.lineTo(0, h * 0.3);
-            ctx.closePath();
-            ctx.fill();
-          } else if (fish.visualId % 5 === 3) {
-            ctx.beginPath();
-            ctx.ellipse(-w * 0.03, 0, w * 0.18, h * 0.12, 0, 0, Math.PI * 2);
-            ctx.fill();
-          } else {
-            ctx.beginPath();
-            ctx.moveTo(-w * 0.18, -h * 0.28);
-            ctx.quadraticCurveTo(0, h * 0.15, w * 0.18, -h * 0.28);
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = "rgba(255,255,255,.35)";
-            ctx.stroke();
-          }
-          ctx.fillStyle = "rgba(255,255,255,.3)";
           ctx.beginPath();
-          ctx.moveTo(-w * 0.08, h * 0.22);
-          ctx.quadraticCurveTo(0, h * 0.55, w * 0.14, h * 0.18);
+          ctx.moveTo(-w * 0.08, h * 0.2);
+          ctx.quadraticCurveTo(0, h * 0.45, w * 0.14, h * 0.16);
           ctx.fill();
+          ctx.restore();
+          ctx.strokeStyle = fish.player ? "#edffff" : "rgba(2,31,48,.72)";
+          ctx.lineWidth = Math.max(fish.player ? 2.2 : 1.4, h * (fish.player ? 0.045 : 0.03));
+          this.traceFishBody(style.body, w, h);
+          ctx.stroke();
+          const eyeX = w * style.eyeX;
           ctx.fillStyle = "#f8ffff";
           ctx.beginPath();
-          ctx.arc(w * 0.26, -h * 0.1, Math.max(2.5, h * 0.09), 0, Math.PI * 2);
+          ctx.arc(eyeX, -h * 0.1, Math.max(2.5, h * 0.09), 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = "#082737";
           ctx.beginPath();
-          ctx.arc(w * 0.28, -h * 0.1, Math.max(1.3, h * 0.045), 0, Math.PI * 2);
+          ctx.arc(eyeX + w * 0.018, -h * 0.1, Math.max(1.3, h * 0.045), 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = "rgba(2,31,48,.75)";
+          ctx.strokeStyle = "rgba(2,31,48,.78)";
           ctx.lineWidth = Math.max(1.5, h * 0.035);
           ctx.beginPath();
-          ctx.arc(w * 0.34, h * 0.07, w * 0.08, 0.18, 1.3);
+          ctx.arc(w * 0.25, h * 0.04, Math.min(w * 0.045, h * 0.07), 0.18, 1.3);
           ctx.stroke();
+          if (!fish.player && (snapshot == null ? void 0 : snapshot.player) && relationFor(snapshot.player.level, fish.level) === "LETHAL") this.drawDangerOutline(style, fish, w, h);
           ctx.restore();
-          if (!fish.player && (snapshot == null ? void 0 : snapshot.player)) this.drawRelationBadge(fish, snapshot);
         }
-        drawRelationBadge(fish, snapshot) {
+        drawDangerOutline(style, fish, w, h) {
           const { ctx } = this;
-          const relation = relationFor(snapshot.player.level, fish.level);
-          const color = relation === "EDIBLE" ? COLORS.edible : relation === "EQUAL" ? COLORS.equal : COLORS.lethal;
-          const glyph = relation === "EDIBLE" ? "\u2713" : relation === "EQUAL" ? "=" : "!";
-          const label = relation === "EDIBLE" ? "\u53EF\u5403" : relation === "EQUAL" ? "\u540C\u7EA7" : "\u5371\u9669";
-          const y = fish.y - fish.height * 0.72;
-          const width = Math.max(76, snapshot.layout.height * 0.18);
-          const height = Math.max(20, snapshot.layout.height * 0.047);
+          const phase = this.elapsed * Math.PI * 3.6 + (Number(fish.spawnSeq) || 0) * 0.61;
+          const alpha = clamp(0.55 + (Math.sin(phase) * 0.5 + 0.5) * 0.4, 0.55, 0.95);
           ctx.save();
-          ctx.fillStyle = "rgba(2,22,35,.82)";
-          this.roundedRect(fish.x - width / 2, y - height / 2, width, height, height / 2);
-          ctx.fill();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
+          ctx.globalAlpha = alpha;
+          ctx.lineJoin = "round";
+          ctx.strokeStyle = "#5b0b20";
+          ctx.lineWidth = Math.max(2.2, h * 0.045);
+          this.traceFishBody(style.body, w, h);
           ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.font = `800 ${Math.max(12, height * 0.62)}px sans-serif`;
-          ctx.fillText(`${glyph} ${label} Lv.${fish.level}`, fish.x, y + 0.5);
+          ctx.strokeStyle = "#ff3b5c";
+          ctx.lineWidth = Math.max(1.3, h * 0.024);
+          this.traceFishBody(style.body, w, h);
+          ctx.stroke();
           ctx.restore();
         }
         drawWarning(fish, layout) {
@@ -2378,7 +2708,7 @@
               const scale = Math.max(0.04, 1 - eased);
               ctx.translate(x, y);
               ctx.scale(scale, scale);
-              this.drawFishShape({ x: 0, y: 0, width: effect.width, height: effect.height, direction: effect.direction, visualId: effect.visualId, player: true }, snapshot, true);
+              this.drawFishShape({ x: 0, y: 0, width: effect.width, height: effect.height, direction: effect.direction, visualId: effect.visualId, level: effect.level, player: true }, snapshot, true);
             } else if (effect.kind === "celebration") {
               const fall = progress * progress;
               ctx.fillStyle = effect.color;
@@ -2429,8 +2759,11 @@
             ctx.font = `800 ${Math.max(14, layout.height * 0.034)}px sans-serif`;
             ctx.fillText(`${stats.comboCount} \u8FDE\u5403  \xD7${Math.min(2, 1 + (stats.comboCount - 1) * 0.1).toFixed(1)}`, centerX, layout.hudHeight + 22);
           }
-          const pause = uiRects(layout, "RUNNING").pause;
-          this.drawIconButton(pause, "\u2161", true);
+          if (snapshot.screenState === "RUNNING") {
+            const rects = uiRects(layout, "RUNNING");
+            this.drawCatalogButton(rects.catalog);
+            this.drawIconButton(rects.pause, "\u2161", true);
+          }
         }
         drawTutorial(snapshot) {
           if (!snapshot.tutorial.enabled) return;
@@ -2438,7 +2771,7 @@
           const leadVisible = snapshot.tutorial.elapsed <= GAME_CONFIG.timing.tutorialLead;
           let text = "";
           if (leadVisible && !snapshot.tutorial.ateGrass) text = "\u4EFB\u610F\u4F4D\u7F6E\u62D6\u52A8\u5C0F\u9C7C \xB7 \u5148\u5403\u6C34\u8349\u6210\u957F";
-          else if (snapshot.player.level >= 2 && !snapshot.tutorial.ateFish) text = "\u5403\u7EFF\u8272 \u2713 \u7684\u4F4E\u7B49\u7EA7\u9C7C\uFF0C\u907F\u5F00\u7EA2\u8272 ! \u5927\u9C7C";
+          else if (snapshot.player.level >= 2 && !snapshot.tutorial.ateFish) text = "\u5403\u4F53\u578B\u66F4\u5C0F\u7684\u9C7C\uFF0C\u907F\u5F00\u7EA2\u8272\u95EA\u8FB9\u7684\u5927\u9C7C";
           if (!text) return;
           const width = Math.min(snapshot.layout.width * 0.7, 560);
           const x = (snapshot.layout.width - width) / 2;
@@ -2452,24 +2785,106 @@
           ctx.font = `600 ${Math.max(13, snapshot.layout.height * 0.03)}px sans-serif`;
           ctx.fillText(text, snapshot.layout.width / 2, y + 19);
         }
-        drawTutorialTarget(snapshot) {
-          if (!snapshot.tutorial.enabled || snapshot.tutorial.ateFish || snapshot.player.level < 2 || snapshot.screenState !== "RUNNING") return;
-          const fish = snapshot.fish.find((candidate) => candidate.inUse && candidate.active && candidate.level < snapshot.player.level);
-          if (!fish) return;
+        drawCatalog(snapshot) {
           const { ctx } = this;
-          const pulse = 1 + Math.sin(this.elapsed * 7) * 0.08;
+          const panel = catalogGeometry(snapshot.layout);
+          const headerH = clamp(panel.height * 0.14, 44, 60);
+          const padding = clamp(panel.width * 0.016, 8, 16);
+          const gapX = clamp(panel.width * 0.012, 6, 12);
+          const gapY = clamp(panel.height * 0.018, 6, 12);
+          const cardW = Math.max(1, (panel.width - padding * 2 - gapX * 4) / 5);
+          const cardH = Math.max(1, (panel.height - headerH - padding * 2 - gapY) / 2);
+          const maxScale = playerSizeScale(10);
           ctx.save();
-          ctx.strokeStyle = "#a5ffba";
-          ctx.lineWidth = 3;
-          ctx.globalAlpha = 0.72 + Math.sin(this.elapsed * 7) * 0.18;
-          ctx.beginPath();
-          ctx.ellipse(fish.x, fish.y, fish.width * 0.58 * pulse, fish.height * 0.78 * pulse, 0, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(1,16,29,.88)";
+          ctx.fillRect(0, 0, snapshot.layout.width, snapshot.layout.height);
+          ctx.fillStyle = COLORS.panel;
+          this.roundedRect(panel.x, panel.y, panel.width, panel.height, Math.min(24, panel.height * 0.08));
+          ctx.fill();
+          ctx.strokeStyle = COLORS.panelLine;
+          ctx.lineWidth = 2;
           ctx.stroke();
-          ctx.fillStyle = "#d9ffe2";
           ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.font = `800 ${Math.max(12, snapshot.layout.height * 0.027)}px sans-serif`;
-          ctx.fillText("\u53EF\u5403", fish.x, fish.y - fish.height * 0.92);
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = COLORS.ink;
+          ctx.font = `900 ${Math.max(20, Math.min(30, snapshot.layout.height * 0.055))}px sans-serif`;
+          ctx.fillText("\u9C7C\u7C7B\u56FE\u9274", panel.x + panel.width / 2, panel.y + headerH * 0.36);
+          ctx.fillStyle = COLORS.muted;
+          ctx.font = `500 ${Math.max(10, Math.min(14, snapshot.layout.height * 0.026))}px sans-serif`;
+          ctx.fillText("\u7528\u5916\u5F62\u548C\u4F53\u578B\u8BB0\u4F4F\u6BCF\u4E2A\u7B49\u7EA7", panel.x + panel.width / 2, panel.y + headerH * 0.76);
+          const gridY = panel.y + headerH + padding;
+          for (let index = 0; index < FISH_LEVEL_VISUALS.length; index += 1) {
+            const level = index + 1;
+            const column = index % 5;
+            const row = Math.floor(index / 5);
+            const cardX = panel.x + padding + column * (cardW + gapX);
+            const cardY = gridY + row * (cardH + gapY);
+            ctx.fillStyle = "rgba(6,45,64,.76)";
+            this.roundedRect(cardX, cardY, cardW, cardH, Math.min(12, cardH * 0.14));
+            ctx.fill();
+            ctx.strokeStyle = level === snapshot.player.level ? "#65e7ea" : "rgba(157,222,229,.26)";
+            ctx.lineWidth = level === snapshot.player.level ? 2.4 : 1;
+            ctx.stroke();
+            const maxFishW = Math.max(1, Math.min(cardW * 0.72, cardH * 0.5 / GAME_CONFIG.player.bodyAspect));
+            const fishWidth = maxFishW * playerSizeScale(level) / maxScale;
+            this.drawFishShape({
+              x: cardX + cardW * 0.5,
+              y: cardY + cardH * 0.43,
+              width: fishWidth,
+              height: fishWidth * GAME_CONFIG.player.bodyAspect,
+              direction: 1,
+              level,
+              visualId: index,
+              spawnSeq: index + 1
+            }, null);
+            ctx.fillStyle = COLORS.ink;
+            if (cardW >= 100) {
+              ctx.font = `800 ${Math.max(10, Math.min(14, cardH * 0.13))}px sans-serif`;
+              ctx.fillText(`Lv.${level} \xB7 ${FISH_LEVEL_VISUALS[index].name}`, cardX + cardW / 2, cardY + cardH * 0.84);
+            } else {
+              ctx.font = `800 ${Math.max(9, Math.min(12, cardH * 0.12))}px sans-serif`;
+              ctx.fillText(`Lv.${level}`, cardX + cardW / 2, cardY + cardH * 0.77);
+              ctx.fillStyle = COLORS.muted;
+              ctx.font = `600 ${Math.max(8, Math.min(11, cardH * 0.105))}px sans-serif`;
+              ctx.fillText(FISH_LEVEL_VISUALS[index].name, cardX + cardW / 2, cardY + cardH * 0.91);
+            }
+          }
+          this.drawIconButton(uiRects(snapshot.layout, "CATALOG").catalogClose, "\xD7", true);
+          ctx.restore();
+        }
+        drawCatalogButton(rect) {
+          if (!rect) return;
+          const { ctx } = this;
+          const centerX = rect.x + rect.width / 2;
+          const centerY = rect.y + rect.height / 2;
+          ctx.save();
+          ctx.fillStyle = "rgba(88,222,224,.24)";
+          this.roundedRect(rect.x, rect.y, rect.width, rect.height, 12);
+          ctx.fill();
+          ctx.strokeStyle = "#89f3ef";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.fillStyle = "#dfffff";
+          ctx.beginPath();
+          ctx.moveTo(centerX - 5, centerY - 2);
+          ctx.lineTo(centerX - 12, centerY - 7);
+          ctx.lineTo(centerX - 11, centerY + 3);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(centerX + 2, centerY - 2, 9, 5.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#07384a";
+          ctx.beginPath();
+          ctx.arc(centerX + 6, centerY - 3, 1.3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#dfffff";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(centerX - 10, centerY + 8);
+          ctx.quadraticCurveTo(centerX - 5, centerY + 5, centerX, centerY + 8);
+          ctx.quadraticCurveTo(centerX + 5, centerY + 5, centerX + 10, centerY + 8);
+          ctx.stroke();
           ctx.restore();
         }
         drawPause(snapshot) {
@@ -2632,7 +3047,7 @@
           return `${minutes}:${String(seconds).padStart(2, "0")}`;
         }
       };
-      module.exports = { CanvasRenderer };
+      module.exports = { CanvasRenderer, FISH_LEVEL_VISUALS, fishVisualForLevel };
     }
   });
 

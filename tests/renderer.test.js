@@ -10,7 +10,7 @@ function makeMockCanvas() {
   const calls = []
   const gradient = { addColorStop: (...args) => calls.push(['addColorStop', ...args]) }
   const methods = new Set([
-    'arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText',
+    'arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText',
     'lineTo', 'moveTo', 'quadraticCurveTo', 'restore', 'rotate', 'save', 'scale', 'setTransform', 'stroke', 'translate'
   ])
   const target = { createLinearGradient: (...args) => { calls.push(['createLinearGradient', ...args]); return gradient } }

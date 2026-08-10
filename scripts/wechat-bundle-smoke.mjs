@@ -63,6 +63,9 @@ const driveFrame = (time) => {
   nextFrame = null
   callback(time)
 }
+const catalogButton = { x: 711, y: 27 }
+const catalogClose = { x: 759, y: 41 }
+const pauseButton = { x: 765, y: 27 }
 
 if (release) {
   assert.equal(app, undefined, 'release 不得暴露 growFishApp')
@@ -76,21 +79,35 @@ if (release) {
   assert.equal(drawnText.some((value) => value.startsWith('分数 ')), true, '开局后必须绘制 HUD')
 
   drawnText.length = 0
-  touch('touchstart', 2, 760, 22)
-  touch('touchend', 2, 760, 22)
+  touch('touchstart', 2, catalogButton.x, catalogButton.y)
+  touch('touchend', 2, catalogButton.x, catalogButton.y)
   driveFrame(2000 / 60)
+  assert.equal(drawnText.includes('鱼类图鉴'), true, '图鉴入口必须打开图鉴')
+  assert.equal(drawnText.some((value) => value.startsWith('Lv.1') && value.includes('银鳞鱼')), true, '图鉴必须绘制 Lv.1')
+  assert.equal(drawnText.some((value) => value.startsWith('Lv.10') && value.includes('王冠龙鱼')), true, '图鉴必须绘制 Lv.10')
+
+  drawnText.length = 0
+  touch('touchstart', 3, catalogClose.x, catalogClose.y)
+  touch('touchend', 3, catalogClose.x, catalogClose.y)
+  driveFrame(3000 / 60)
+  assert.equal(drawnText.some((value) => value.startsWith('分数 ')), true, '关闭图鉴必须恢复玩法 HUD')
+
+  drawnText.length = 0
+  touch('touchstart', 4, pauseButton.x, pauseButton.y)
+  touch('touchend', 4, pauseButton.x, pauseButton.y)
+  driveFrame(4000 / 60)
   assert.equal(drawnText.includes('已暂停'), true, '暂停入口必须可用')
 
   drawnText.length = 0
-  touch('touchstart', 3, 400, 220)
-  touch('touchend', 3, 400, 220)
-  driveFrame(3000 / 60)
+  touch('touchstart', 5, 400, 220)
+  touch('touchend', 5, 400, 220)
+  driveFrame(5000 / 60)
   assert.equal(drawnText.some((value) => value.startsWith('分数 ')), true, '继续入口必须恢复 HUD')
 
   drawnText.length = 0
   viewport = { ...viewport, windowWidth: 900, windowHeight: 450 }
   callbacks.resize.forEach((listener) => listener({ windowWidth: 900, windowHeight: 450 }))
-  driveFrame(4000 / 60)
+  driveFrame(6000 / 60)
   assert.equal(canvas.width, 900)
   assert.equal(canvas.height, 450)
   assert.equal(drawnText.includes('已暂停'), true, 'resize 后必须安全暂停')
@@ -105,11 +122,24 @@ if (release) {
   assert.equal(app.core.tick, 1)
   assert.equal(app.core.spawnManager.counts().totalReserved, 5)
 
-  touch('touchstart', 2, 760, 22)
-  touch('touchend', 2, 760, 22)
+  drawnText.length = 0
+  touch('touchstart', 2, catalogButton.x, catalogButton.y)
+  touch('touchend', 2, catalogButton.x, catalogButton.y)
   assert.equal(app.core.screenState, 'PAUSED')
-  touch('touchstart', 3, 400, 220)
-  touch('touchend', 3, 400, 220)
+  assert.equal(app.core.pauseView, 'CATALOG')
+  app.renderer.render(app.core.snapshot())
+  assert.equal(drawnText.includes('鱼类图鉴'), true)
+  touch('touchstart', 3, catalogClose.x, catalogClose.y)
+  touch('touchend', 3, catalogClose.x, catalogClose.y)
+  assert.equal(app.core.screenState, 'RUNNING')
+  assert.equal(app.core.pauseView, null)
+
+  touch('touchstart', 4, pauseButton.x, pauseButton.y)
+  touch('touchend', 4, pauseButton.x, pauseButton.y)
+  assert.equal(app.core.screenState, 'PAUSED')
+  assert.equal(app.core.pauseView, 'MENU')
+  touch('touchstart', 5, 400, 220)
+  touch('touchend', 5, 400, 220)
   assert.equal(app.core.screenState, 'RUNNING')
 
   viewport = { ...viewport, windowWidth: 900, windowHeight: 450 }

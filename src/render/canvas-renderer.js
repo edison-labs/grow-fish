@@ -3,17 +3,40 @@
 const { GAME_CONFIG, upgradeNeed, playerSizeScale } = require('../config/game-config')
 const { clamp, relationFor } = require('../core/math')
 const { fishBody, grassBody } = require('../core/entities')
-const { uiRects } = require('./layout')
+const { catalogGeometry, uiRects } = require('./layout')
 
 const COLORS = {
   ink: '#eaffff',
   muted: '#9bd5df',
   panel: 'rgba(3,27,46,.86)',
   panelLine: 'rgba(145,229,238,.34)',
-  edible: '#55e68a',
-  equal: '#ffd35a',
   lethal: '#ff6174',
   accent: '#59e4ef'
+}
+
+const FISH_LEVEL_VISUALS = Object.freeze([
+  Object.freeze({ id: 'silver-minnow', name: '银鳞鱼', body: 'slender', tail: 'fork', fin: 'tiny', pattern: 'shine', primary: '#8de9f2', secondary: '#26788f', accent: '#e8feff', eyeX: 0.27 }),
+  Object.freeze({ id: 'lime-drop', name: '青露鱼', body: 'drop', tail: 'paddle', fin: 'triangle', pattern: 'band', primary: '#c8ea72', secondary: '#5c7a35', accent: '#f4ffd2', eyeX: 0.25 }),
+  Object.freeze({ id: 'violet-butterfly', name: '蝶翼鱼', body: 'diamond', tail: 'swallow', fin: 'veil', pattern: 'diagonal', primary: '#c8a8ff', secondary: '#6551a6', accent: '#f0e7ff', eyeX: 0.25 }),
+  Object.freeze({ id: 'coral-puffer', name: '珊瑚河豚', body: 'orb', tail: 'fan', fin: 'spikes', pattern: 'dots', primary: '#ff94a6', secondary: '#9b3f5c', accent: '#ffe1e7', eyeX: 0.18 }),
+  Object.freeze({ id: 'sun-moonfish', name: '太阳月鱼', body: 'moon', tail: 'crescent', fin: 'sail', pattern: 'eyespot', primary: '#ffd166', secondary: '#a65c2e', accent: '#fff0ae', eyeX: 0.23 }),
+  Object.freeze({ id: 'blue-swordfish', name: '蓝剑鱼', body: 'sword', tail: 'deepFork', fin: 'swept', pattern: 'zigzag', primary: '#80c7ff', secondary: '#27649a', accent: '#dff3ff', eyeX: 0.28 }),
+  Object.freeze({ id: 'rose-lionfish', name: '狮子鱼', body: 'lion', tail: 'rayFan', fin: 'rays', pattern: 'wideBands', primary: '#f5e3b3', secondary: '#8a486f', accent: '#fff7dc', eyeX: 0.23 }),
+  Object.freeze({ id: 'slate-shark', name: '灰礁鲨', body: 'shark', tail: 'shark', fin: 'shark', pattern: 'belly', primary: '#a8c6d4', secondary: '#334c60', accent: '#edf8fb', eyeX: 0.29 }),
+  Object.freeze({ id: 'amber-armor', name: '铠甲鱼', body: 'armor', tail: 'trident', fin: 'double', pattern: 'plates', primary: '#f0a56a', secondary: '#6d4057', accent: '#ffe1b5', eyeX: 0.25 }),
+  Object.freeze({ id: 'gold-dragon', name: '王冠龙鱼', body: 'dragon', tail: 'doubleLeaf', fin: 'crown', pattern: 'scales', primary: '#ffe36e', secondary: '#5a3e91', accent: '#fff6bd', eyeX: 0.24 })
+])
+
+const PUFFER_DOTS = Object.freeze([
+  Object.freeze([-0.16, -0.16, 0.075]),
+  Object.freeze([0.02, -0.24, 0.055]),
+  Object.freeze([0.12, 0.1, 0.065]),
+  Object.freeze([-0.09, 0.22, 0.05])
+])
+
+function fishVisualForLevel(level) {
+  const normalized = Math.max(1, Math.min(10, Math.floor(Number(level) || 1)))
+  return FISH_LEVEL_VISUALS[normalized - 1]
 }
 
 class CanvasRenderer {
@@ -54,7 +77,8 @@ class CanvasRenderer {
             width: data.width ?? snapshot.player.width * 0.7,
             height: data.height ?? snapshot.player.height * 0.7,
             direction: data.direction || 1,
-            visualId: data.visualId || 0,
+            visualId: data.visualId ?? 0,
+            level: data.fishLevel ?? data.level ?? ((data.visualId ?? 0) + 1),
             age: 0,
             life: 0.28
           })
@@ -205,7 +229,7 @@ class CanvasRenderer {
     ctx.fillStyle = '#a5eef4'
     ctx.font = `600 ${Math.max(14, height * 0.035)}px sans-serif`
     ctx.fillText('吃水草起步 · 吃小鱼成长 · 躲避大鱼', width * 0.5, height * 0.31)
-    this.drawFishShape({ x: width * 0.5, y: height * 0.42, width: width * 0.13, height: width * 0.067, direction: 1, visualId: 4, level: 6, player: true }, snapshot)
+    this.drawFishShape({ x: width * 0.5, y: height * 0.42, width: width * 0.13, height: width * 0.067, direction: 1, visualId: 5, level: 6, player: true }, snapshot)
     const save = snapshot.save
     ctx.font = `500 ${Math.max(13, height * 0.03)}px sans-serif`
     ctx.fillStyle = '#b8e6ea'
@@ -225,12 +249,14 @@ class CanvasRenderer {
     for (const grass of snapshot.grass) if (grass.inUse && grass.active) this.drawGrass(grass)
     for (const fish of snapshot.fish) if (fish.inUse && fish.active) this.drawFishShape(fish, snapshot)
     for (const fish of snapshot.fish) if (fish.inUse && fish.pending) this.drawWarning(fish, snapshot.layout)
-    this.drawTutorialTarget(snapshot)
     this.drawPlayer(snapshot)
     this.drawEffects(snapshot)
     this.drawHud(snapshot)
     if (snapshot.screenState === 'RUNNING') this.drawTutorial(snapshot)
-    if (snapshot.screenState === 'PAUSED') this.drawPause(snapshot)
+    if (snapshot.screenState === 'PAUSED') {
+      if (snapshot.pauseView === 'CATALOG') this.drawCatalog(snapshot)
+      else this.drawPause(snapshot)
+    }
     if (snapshot.screenState === 'DEAD') this.drawCinematicLabel(snapshot, '被大鱼吃掉了', '#ff9aa7')
     if (snapshot.screenState === 'WIN') this.drawCinematicLabel(snapshot, '称霸海域！', '#ffe879')
   }
@@ -329,80 +355,236 @@ class CanvasRenderer {
       ctx.stroke()
       ctx.globalAlpha = 1
     }
-    this.drawFishShape({ ...player, direction: player.facing, visualId: 4, player: true }, snapshot, true)
+    this.drawFishShape({ ...player, direction: player.facing, visualId: player.level - 1, player: true }, snapshot, true)
     ctx.restore()
+  }
+
+  traceFishBody(body, w, h) {
+    const { ctx } = this
+    ctx.beginPath()
+    if (body === 'slender') {
+      ctx.ellipse(0, 0, w * 0.41, h * 0.3, 0, 0, Math.PI * 2)
+    } else if (body === 'drop') {
+      ctx.moveTo(-w * 0.39, 0)
+      ctx.bezierCurveTo(-w * 0.23, -h * 0.34, w * 0.24, -h * 0.48, w * 0.4, -h * 0.08)
+      ctx.quadraticCurveTo(w * 0.42, 0, w * 0.4, h * 0.1)
+      ctx.bezierCurveTo(w * 0.22, h * 0.42, -w * 0.23, h * 0.34, -w * 0.39, 0)
+      ctx.closePath()
+    } else if (body === 'diamond') {
+      ctx.moveTo(-w * 0.39, 0)
+      ctx.quadraticCurveTo(-w * 0.08, -h * 0.49, w * 0.34, -h * 0.2)
+      ctx.lineTo(w * 0.42, 0)
+      ctx.lineTo(w * 0.34, h * 0.2)
+      ctx.quadraticCurveTo(-w * 0.08, h * 0.49, -w * 0.39, 0)
+      ctx.closePath()
+    } else if (body === 'orb') {
+      ctx.ellipse(-w * 0.02, 0, w * 0.34, h * 0.49, 0, 0, Math.PI * 2)
+    } else if (body === 'moon') {
+      ctx.ellipse(-w * 0.01, 0, w * 0.37, h * 0.47, 0, 0, Math.PI * 2)
+    } else if (body === 'sword') {
+      ctx.moveTo(-w * 0.42, 0)
+      ctx.quadraticCurveTo(-w * 0.08, -h * 0.34, w * 0.29, -h * 0.2)
+      ctx.lineTo(w * 0.42, -h * 0.025)
+      ctx.lineTo(w * 0.29, h * 0.11)
+      ctx.quadraticCurveTo(-w * 0.08, h * 0.32, -w * 0.42, 0)
+      ctx.closePath()
+    } else if (body === 'lion') {
+      ctx.moveTo(-w * 0.39, 0)
+      ctx.bezierCurveTo(-w * 0.28, -h * 0.44, w * 0.26, -h * 0.49, w * 0.4, -h * 0.09)
+      ctx.lineTo(w * 0.42, h * 0.12)
+      ctx.bezierCurveTo(w * 0.12, h * 0.47, -w * 0.27, h * 0.38, -w * 0.39, 0)
+      ctx.closePath()
+    } else if (body === 'shark') {
+      ctx.moveTo(-w * 0.42, h * 0.02)
+      ctx.quadraticCurveTo(-w * 0.08, -h * 0.38, w * 0.37, -h * 0.16)
+      ctx.lineTo(w * 0.42, h * 0.055)
+      ctx.quadraticCurveTo(w * 0.05, h * 0.35, -w * 0.42, h * 0.02)
+      ctx.closePath()
+    } else if (body === 'armor') {
+      ctx.moveTo(-w * 0.4, 0)
+      ctx.lineTo(-w * 0.22, -h * 0.42)
+      ctx.lineTo(w * 0.22, -h * 0.42)
+      ctx.lineTo(w * 0.42, -h * 0.08)
+      ctx.lineTo(w * 0.37, h * 0.25)
+      ctx.lineTo(-w * 0.18, h * 0.43)
+      ctx.closePath()
+    } else {
+      ctx.moveTo(-w * 0.4, h * 0.02)
+      ctx.bezierCurveTo(-w * 0.3, -h * 0.48, w * 0.25, -h * 0.49, w * 0.41, -h * 0.12)
+      ctx.quadraticCurveTo(w * 0.42, h * 0.02, w * 0.38, h * 0.17)
+      ctx.bezierCurveTo(w * 0.18, h * 0.46, -w * 0.29, h * 0.46, -w * 0.4, h * 0.02)
+      ctx.closePath()
+    }
+  }
+
+  drawFishTail(style, w, h) {
+    const { ctx } = this
+    ctx.fillStyle = style.secondary
+    ctx.beginPath()
+    if (style.tail === 'fork') {
+      ctx.moveTo(-w * 0.34, 0); ctx.lineTo(-w * 0.63, -h * 0.32); ctx.lineTo(-w * 0.52, 0); ctx.lineTo(-w * 0.63, h * 0.32)
+    } else if (style.tail === 'paddle') {
+      ctx.moveTo(-w * 0.34, 0); ctx.quadraticCurveTo(-w * 0.62, -h * 0.4, -w * 0.59, 0); ctx.quadraticCurveTo(-w * 0.62, h * 0.4, -w * 0.34, 0)
+    } else if (style.tail === 'swallow') {
+      ctx.moveTo(-w * 0.34, 0); ctx.lineTo(-w * 0.64, -h * 0.46); ctx.lineTo(-w * 0.54, 0); ctx.lineTo(-w * 0.64, h * 0.46)
+    } else if (style.tail === 'fan') {
+      ctx.moveTo(-w * 0.31, 0); ctx.quadraticCurveTo(-w * 0.53, -h * 0.28, -w * 0.56, -h * 0.18); ctx.lineTo(-w * 0.56, h * 0.18); ctx.quadraticCurveTo(-w * 0.53, h * 0.28, -w * 0.31, 0)
+    } else if (style.tail === 'crescent') {
+      ctx.moveTo(-w * 0.34, 0); ctx.quadraticCurveTo(-w * 0.64, -h * 0.43, -w * 0.61, -h * 0.2); ctx.quadraticCurveTo(-w * 0.48, 0, -w * 0.61, h * 0.2); ctx.quadraticCurveTo(-w * 0.64, h * 0.43, -w * 0.34, 0)
+    } else if (style.tail === 'deepFork') {
+      ctx.moveTo(-w * 0.36, 0); ctx.lineTo(-w * 0.65, -h * 0.4); ctx.lineTo(-w * 0.49, -h * 0.05); ctx.lineTo(-w * 0.49, h * 0.05); ctx.lineTo(-w * 0.65, h * 0.4)
+    } else if (style.tail === 'rayFan') {
+      ctx.moveTo(-w * 0.34, 0); ctx.lineTo(-w * 0.62, -h * 0.48); ctx.quadraticCurveTo(-w * 0.54, 0, -w * 0.62, h * 0.48)
+    } else if (style.tail === 'shark') {
+      ctx.moveTo(-w * 0.36, 0); ctx.lineTo(-w * 0.61, -h * 0.49); ctx.lineTo(-w * 0.55, -h * 0.03); ctx.lineTo(-w * 0.62, h * 0.26)
+    } else if (style.tail === 'trident') {
+      ctx.moveTo(-w * 0.35, 0); ctx.lineTo(-w * 0.63, -h * 0.38); ctx.lineTo(-w * 0.54, -h * 0.08); ctx.lineTo(-w * 0.64, 0); ctx.lineTo(-w * 0.54, h * 0.08); ctx.lineTo(-w * 0.63, h * 0.38)
+    } else {
+      ctx.moveTo(-w * 0.34, 0); ctx.quadraticCurveTo(-w * 0.55, -h * 0.49, -w * 0.64, -h * 0.34); ctx.quadraticCurveTo(-w * 0.53, 0, -w * 0.64, h * 0.34); ctx.quadraticCurveTo(-w * 0.55, h * 0.49, -w * 0.34, 0)
+    }
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  drawFishFins(style, w, h) {
+    const { ctx } = this
+    ctx.fillStyle = style.secondary
+    ctx.strokeStyle = style.secondary
+    ctx.lineWidth = Math.max(1.5, h * 0.045)
+    if (style.fin === 'tiny') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.06, h * 0.18); ctx.lineTo(w * 0.03, h * 0.39); ctx.lineTo(w * 0.12, h * 0.16); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'triangle') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.12, -h * 0.22); ctx.lineTo(w * 0.02, -h * 0.48); ctx.lineTo(w * 0.14, -h * 0.2); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'veil') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.18, -h * 0.22); ctx.quadraticCurveTo(0, -h * 0.5, w * 0.15, -h * 0.18); ctx.lineTo(w * 0.06, -h * 0.08); ctx.closePath(); ctx.fill()
+      ctx.beginPath(); ctx.moveTo(-w * 0.14, h * 0.2); ctx.quadraticCurveTo(0, h * 0.49, w * 0.16, h * 0.18); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'spikes') {
+      for (let spike = 0; spike < 6; spike += 1) {
+        const x = -w * 0.25 + spike * w * 0.09
+        ctx.beginPath(); ctx.moveTo(x - w * 0.025, -h * 0.31); ctx.lineTo(x, -h * (0.43 + (spike % 2) * 0.05)); ctx.lineTo(x + w * 0.025, -h * 0.31); ctx.closePath(); ctx.fill()
+      }
+    } else if (style.fin === 'sail') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.2, -h * 0.23); ctx.quadraticCurveTo(-w * 0.02, -h * 0.5, w * 0.18, -h * 0.21); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'swept') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.18, -h * 0.17); ctx.lineTo(w * 0.08, -h * 0.43); ctx.lineTo(w * 0.18, -h * 0.16); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'rays') {
+      for (let ray = 0; ray < 5; ray += 1) {
+        const x = -w * 0.18 + ray * w * 0.08
+        ctx.beginPath(); ctx.moveTo(x, -h * 0.24); ctx.lineTo(x - w * 0.04, -h * (0.45 + (ray % 2) * 0.035)); ctx.stroke()
+      }
+    } else if (style.fin === 'shark') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.13, -h * 0.17); ctx.lineTo(w * 0.02, -h * 0.5); ctx.lineTo(w * 0.14, -h * 0.14); ctx.closePath(); ctx.fill()
+    } else if (style.fin === 'double') {
+      for (let fin = 0; fin < 2; fin += 1) {
+        const x = -w * 0.14 + fin * w * 0.23
+        ctx.beginPath(); ctx.moveTo(x - w * 0.07, -h * 0.22); ctx.lineTo(x, -h * (0.46 - fin * 0.05)); ctx.lineTo(x + w * 0.07, -h * 0.2); ctx.closePath(); ctx.fill()
+      }
+    } else {
+      for (let crown = 0; crown < 3; crown += 1) {
+        const x = -w * 0.16 + crown * w * 0.13
+        ctx.beginPath(); ctx.moveTo(x - w * 0.055, -h * 0.21); ctx.lineTo(x, -h * (0.49 - Math.abs(crown - 1) * 0.06)); ctx.lineTo(x + w * 0.055, -h * 0.2); ctx.closePath(); ctx.fill()
+      }
+    }
+  }
+
+  drawFishPattern(style, w, h) {
+    const { ctx } = this
+    ctx.fillStyle = style.accent
+    ctx.strokeStyle = style.accent
+    ctx.lineWidth = Math.max(1.5, h * 0.04)
+    if (style.pattern === 'shine') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.25, -h * 0.08); ctx.quadraticCurveTo(0, -h * 0.24, w * 0.22, -h * 0.08); ctx.stroke()
+    } else if (style.pattern === 'band') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.12, -h * 0.34); ctx.lineTo(-w * 0.02, -h * 0.4); ctx.lineTo(w * 0.02, h * 0.35); ctx.lineTo(-w * 0.1, h * 0.3); ctx.closePath(); ctx.fill()
+    } else if (style.pattern === 'diagonal') {
+      for (let band = 0; band < 2; band += 1) {
+        const x = -w * 0.14 + band * w * 0.2
+        ctx.beginPath(); ctx.moveTo(x - w * 0.08, -h * 0.34); ctx.lineTo(x, -h * 0.4); ctx.lineTo(x + w * 0.12, h * 0.31); ctx.lineTo(x + w * 0.04, h * 0.36); ctx.closePath(); ctx.fill()
+      }
+    } else if (style.pattern === 'dots') {
+      for (const [x, y, radius] of PUFFER_DOTS) { ctx.beginPath(); ctx.arc(w * x, h * y, h * radius, 0, Math.PI * 2); ctx.fill() }
+    } else if (style.pattern === 'eyespot') {
+      ctx.beginPath(); ctx.arc(-w * 0.08, 0, h * 0.14, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = style.secondary; ctx.beginPath(); ctx.moveTo(-w * 0.27, h * 0.2); ctx.lineTo(w * 0.18, h * 0.2); ctx.stroke()
+    } else if (style.pattern === 'zigzag') {
+      ctx.beginPath(); ctx.moveTo(-w * 0.25, -h * 0.08); ctx.lineTo(-w * 0.08, h * 0.13); ctx.lineTo(w * 0.04, -h * 0.1); ctx.lineTo(w * 0.2, h * 0.1); ctx.stroke()
+    } else if (style.pattern === 'wideBands') {
+      for (let band = 0; band < 3; band += 1) ctx.fillRect(-w * 0.22 + band * w * 0.16, -h * 0.34, w * 0.055, h * 0.68)
+    } else if (style.pattern === 'belly') {
+      ctx.beginPath(); ctx.ellipse(0, h * 0.16, w * 0.29, h * 0.16, 0, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = style.secondary; ctx.beginPath(); ctx.moveTo(w * 0.2, -h * 0.08); ctx.lineTo(w * 0.12, h * 0.12); ctx.stroke()
+    } else if (style.pattern === 'plates') {
+      for (let plate = 0; plate < 3; plate += 1) {
+        const x = -w * 0.17 + plate * w * 0.17
+        ctx.beginPath(); ctx.moveTo(x - w * 0.075, 0); ctx.lineTo(x, -h * 0.24); ctx.lineTo(x + w * 0.075, 0); ctx.lineTo(x, h * 0.24); ctx.closePath(); ctx.stroke()
+      }
+    } else {
+      for (let scale = 0; scale < 3; scale += 1) {
+        const x = -w * 0.15 + scale * w * 0.14
+        ctx.beginPath(); ctx.arc(x, 0, h * 0.13, -1.1, 1.1); ctx.stroke()
+      }
+      ctx.beginPath(); ctx.moveTo(-w * 0.25, -h * 0.2); ctx.quadraticCurveTo(0, -h * 0.34, w * 0.22, -h * 0.16); ctx.stroke()
+    }
   }
 
   drawFishShape(fish, snapshot, alreadyTranslated = false) {
     const { ctx } = this
     const direction = fish.direction || 1
-    const palette = [
-      ['#69dbe5', '#257aa1'], ['#f7b86b', '#d35c68'], ['#b995ef', '#5b57a6'], ['#7fd58e', '#258f74'], ['#ffe379', '#17a9b2']
-    ][fish.visualId % 5]
+    const level = Math.max(1, Math.min(10, Math.floor(Number(fish.level) || (Number(fish.visualId) || 0) + 1)))
+    const style = fishVisualForLevel(level)
     ctx.save()
     if (!alreadyTranslated) ctx.translate(fish.x, fish.y)
     ctx.scale(direction, 1)
     const w = fish.width
     const h = fish.height
-    ctx.fillStyle = palette[1]
-    ctx.beginPath()
-    ctx.moveTo(-w * 0.36, 0)
-    ctx.quadraticCurveTo(-w * 0.65, -h * 0.48, -w * 0.56, 0)
-    ctx.quadraticCurveTo(-w * 0.65, h * 0.48, -w * 0.36, 0)
-    ctx.fill()
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    this.drawFishTail(style, w, h)
+    this.drawFishFins(style, w, h)
     const gradient = ctx.createLinearGradient(-w * 0.35, -h * 0.4, w * 0.42, h * 0.32)
-    gradient.addColorStop(0, palette[0])
-    gradient.addColorStop(1, palette[1])
+    gradient.addColorStop(0, style.primary)
+    gradient.addColorStop(1, style.secondary)
     ctx.fillStyle = gradient
-    ctx.beginPath()
-    ctx.ellipse(0, 0, w * 0.42, h * 0.48, 0, 0, Math.PI * 2)
+    this.traceFishBody(style.body, w, h)
     ctx.fill()
+    ctx.save()
+    this.traceFishBody(style.body, w, h)
+    ctx.clip()
+    this.drawFishPattern(style, w, h)
     ctx.fillStyle = 'rgba(255,255,255,.28)'
-    if (fish.visualId % 5 === 0) {
-      for (let stripe = -1; stripe <= 1; stripe += 1) ctx.fillRect(-w * 0.12 + stripe * w * 0.1, -h * 0.35, w * 0.035, h * 0.7)
-    } else if (fish.visualId % 5 === 1) {
-      ctx.beginPath(); ctx.arc(-w * 0.06, -h * 0.05, h * 0.1, 0, Math.PI * 2); ctx.arc(w * 0.08, h * 0.12, h * 0.08, 0, Math.PI * 2); ctx.fill()
-    } else if (fish.visualId % 5 === 2) {
-      ctx.beginPath(); ctx.moveTo(-w * 0.12, 0); ctx.lineTo(0, -h * 0.3); ctx.lineTo(w * 0.12, 0); ctx.lineTo(0, h * 0.3); ctx.closePath(); ctx.fill()
-    } else if (fish.visualId % 5 === 3) {
-      ctx.beginPath(); ctx.ellipse(-w * 0.03, 0, w * 0.18, h * 0.12, 0, 0, Math.PI * 2); ctx.fill()
-    } else {
-      ctx.beginPath(); ctx.moveTo(-w * 0.18, -h * 0.28); ctx.quadraticCurveTo(0, h * 0.15, w * 0.18, -h * 0.28); ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke()
-    }
-    ctx.fillStyle = 'rgba(255,255,255,.3)'
-    ctx.beginPath(); ctx.moveTo(-w * 0.08, h * 0.22); ctx.quadraticCurveTo(0, h * 0.55, w * 0.14, h * 0.18); ctx.fill()
-    ctx.fillStyle = '#f8ffff'
-    ctx.beginPath(); ctx.arc(w * 0.26, -h * 0.1, Math.max(2.5, h * 0.09), 0, Math.PI * 2); ctx.fill()
-    ctx.fillStyle = '#082737'
-    ctx.beginPath(); ctx.arc(w * 0.28, -h * 0.1, Math.max(1.3, h * 0.045), 0, Math.PI * 2); ctx.fill()
-    ctx.strokeStyle = 'rgba(2,31,48,.75)'
-    ctx.lineWidth = Math.max(1.5, h * 0.035)
-    ctx.beginPath(); ctx.arc(w * 0.34, h * 0.07, w * 0.08, 0.18, 1.3); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(-w * 0.08, h * 0.2); ctx.quadraticCurveTo(0, h * 0.45, w * 0.14, h * 0.16); ctx.fill()
     ctx.restore()
-    if (!fish.player && snapshot?.player) this.drawRelationBadge(fish, snapshot)
+    ctx.strokeStyle = fish.player ? '#edffff' : 'rgba(2,31,48,.72)'
+    ctx.lineWidth = Math.max(fish.player ? 2.2 : 1.4, h * (fish.player ? 0.045 : 0.03))
+    this.traceFishBody(style.body, w, h)
+    ctx.stroke()
+    const eyeX = w * style.eyeX
+    ctx.fillStyle = '#f8ffff'
+    ctx.beginPath(); ctx.arc(eyeX, -h * 0.1, Math.max(2.5, h * 0.09), 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#082737'
+    ctx.beginPath(); ctx.arc(eyeX + w * 0.018, -h * 0.1, Math.max(1.3, h * 0.045), 0, Math.PI * 2); ctx.fill()
+    ctx.strokeStyle = 'rgba(2,31,48,.78)'
+    ctx.lineWidth = Math.max(1.5, h * 0.035)
+    ctx.beginPath(); ctx.arc(w * 0.25, h * 0.04, Math.min(w * 0.045, h * 0.07), 0.18, 1.3); ctx.stroke()
+    if (!fish.player && snapshot?.player && relationFor(snapshot.player.level, fish.level) === 'LETHAL') this.drawDangerOutline(style, fish, w, h)
+    ctx.restore()
   }
 
-  drawRelationBadge(fish, snapshot) {
+  drawDangerOutline(style, fish, w, h) {
     const { ctx } = this
-    const relation = relationFor(snapshot.player.level, fish.level)
-    const color = relation === 'EDIBLE' ? COLORS.edible : relation === 'EQUAL' ? COLORS.equal : COLORS.lethal
-    const glyph = relation === 'EDIBLE' ? '✓' : relation === 'EQUAL' ? '=' : '!'
-    const label = relation === 'EDIBLE' ? '可吃' : relation === 'EQUAL' ? '同级' : '危险'
-    const y = fish.y - fish.height * 0.72
-    const width = Math.max(76, snapshot.layout.height * 0.18)
-    const height = Math.max(20, snapshot.layout.height * 0.047)
+    const phase = this.elapsed * Math.PI * 3.6 + (Number(fish.spawnSeq) || 0) * 0.61
+    const alpha = clamp(0.55 + (Math.sin(phase) * 0.5 + 0.5) * 0.4, 0.55, 0.95)
     ctx.save()
-    ctx.fillStyle = 'rgba(2,22,35,.82)'
-    this.roundedRect(fish.x - width / 2, y - height / 2, width, height, height / 2)
-    ctx.fill()
-    ctx.strokeStyle = color
-    ctx.lineWidth = 2
+    ctx.globalAlpha = alpha
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#5b0b20'
+    ctx.lineWidth = Math.max(2.2, h * 0.045)
+    this.traceFishBody(style.body, w, h)
     ctx.stroke()
-    ctx.fillStyle = color
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.font = `800 ${Math.max(12, height * 0.62)}px sans-serif`
-    ctx.fillText(`${glyph} ${label} Lv.${fish.level}`, fish.x, y + 0.5)
+    ctx.strokeStyle = '#ff3b5c'
+    ctx.lineWidth = Math.max(1.3, h * 0.024)
+    this.traceFishBody(style.body, w, h)
+    ctx.stroke()
     ctx.restore()
   }
 
@@ -468,7 +650,7 @@ class CanvasRenderer {
         const scale = Math.max(0.04, 1 - eased)
         ctx.translate(x, y)
         ctx.scale(scale, scale)
-        this.drawFishShape({ x: 0, y: 0, width: effect.width, height: effect.height, direction: effect.direction, visualId: effect.visualId, player: true }, snapshot, true)
+        this.drawFishShape({ x: 0, y: 0, width: effect.width, height: effect.height, direction: effect.direction, visualId: effect.visualId, level: effect.level, player: true }, snapshot, true)
       } else if (effect.kind === 'celebration') {
         const fall = progress * progress
         ctx.fillStyle = effect.color
@@ -518,8 +700,11 @@ class CanvasRenderer {
       ctx.font = `800 ${Math.max(14, layout.height * 0.034)}px sans-serif`
       ctx.fillText(`${stats.comboCount} 连吃  ×${Math.min(2, 1 + (stats.comboCount - 1) * 0.1).toFixed(1)}`, centerX, layout.hudHeight + 22)
     }
-    const pause = uiRects(layout, 'RUNNING').pause
-    this.drawIconButton(pause, 'Ⅱ', true)
+    if (snapshot.screenState === 'RUNNING') {
+      const rects = uiRects(layout, 'RUNNING')
+      this.drawCatalogButton(rects.catalog)
+      this.drawIconButton(rects.pause, 'Ⅱ', true)
+    }
   }
 
   drawTutorial(snapshot) {
@@ -528,7 +713,7 @@ class CanvasRenderer {
     const leadVisible = snapshot.tutorial.elapsed <= GAME_CONFIG.timing.tutorialLead
     let text = ''
     if (leadVisible && !snapshot.tutorial.ateGrass) text = '任意位置拖动小鱼 · 先吃水草成长'
-    else if (snapshot.player.level >= 2 && !snapshot.tutorial.ateFish) text = '吃绿色 ✓ 的低等级鱼，避开红色 ! 大鱼'
+    else if (snapshot.player.level >= 2 && !snapshot.tutorial.ateFish) text = '吃体型更小的鱼，避开红色闪边的大鱼'
     if (!text) return
     const width = Math.min(snapshot.layout.width * 0.7, 560)
     const x = (snapshot.layout.width - width) / 2
@@ -539,24 +724,107 @@ class CanvasRenderer {
     ctx.fillText(text, snapshot.layout.width / 2, y + 19)
   }
 
-  drawTutorialTarget(snapshot) {
-    if (!snapshot.tutorial.enabled || snapshot.tutorial.ateFish || snapshot.player.level < 2 || snapshot.screenState !== 'RUNNING') return
-    const fish = snapshot.fish.find((candidate) => candidate.inUse && candidate.active && candidate.level < snapshot.player.level)
-    if (!fish) return
+  drawCatalog(snapshot) {
     const { ctx } = this
-    const pulse = 1 + Math.sin(this.elapsed * 7) * 0.08
+    const panel = catalogGeometry(snapshot.layout)
+    const headerH = clamp(panel.height * 0.14, 44, 60)
+    const padding = clamp(panel.width * 0.016, 8, 16)
+    const gapX = clamp(panel.width * 0.012, 6, 12)
+    const gapY = clamp(panel.height * 0.018, 6, 12)
+    const cardW = Math.max(1, (panel.width - padding * 2 - gapX * 4) / 5)
+    const cardH = Math.max(1, (panel.height - headerH - padding * 2 - gapY) / 2)
+    const maxScale = playerSizeScale(10)
     ctx.save()
-    ctx.strokeStyle = '#a5ffba'
-    ctx.lineWidth = 3
-    ctx.globalAlpha = 0.72 + Math.sin(this.elapsed * 7) * 0.18
-    ctx.beginPath()
-    ctx.ellipse(fish.x, fish.y, fish.width * 0.58 * pulse, fish.height * 0.78 * pulse, 0, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(1,16,29,.88)'
+    ctx.fillRect(0, 0, snapshot.layout.width, snapshot.layout.height)
+    ctx.fillStyle = COLORS.panel
+    this.roundedRect(panel.x, panel.y, panel.width, panel.height, Math.min(24, panel.height * 0.08))
+    ctx.fill()
+    ctx.strokeStyle = COLORS.panelLine
+    ctx.lineWidth = 2
     ctx.stroke()
-    ctx.fillStyle = '#d9ffe2'
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'bottom'
-    ctx.font = `800 ${Math.max(12, snapshot.layout.height * 0.027)}px sans-serif`
-    ctx.fillText('可吃', fish.x, fish.y - fish.height * 0.92)
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = COLORS.ink
+    ctx.font = `900 ${Math.max(20, Math.min(30, snapshot.layout.height * 0.055))}px sans-serif`
+    ctx.fillText('鱼类图鉴', panel.x + panel.width / 2, panel.y + headerH * 0.36)
+    ctx.fillStyle = COLORS.muted
+    ctx.font = `500 ${Math.max(10, Math.min(14, snapshot.layout.height * 0.026))}px sans-serif`
+    ctx.fillText('用外形和体型记住每个等级', panel.x + panel.width / 2, panel.y + headerH * 0.76)
+    const gridY = panel.y + headerH + padding
+    for (let index = 0; index < FISH_LEVEL_VISUALS.length; index += 1) {
+      const level = index + 1
+      const column = index % 5
+      const row = Math.floor(index / 5)
+      const cardX = panel.x + padding + column * (cardW + gapX)
+      const cardY = gridY + row * (cardH + gapY)
+      ctx.fillStyle = 'rgba(6,45,64,.76)'
+      this.roundedRect(cardX, cardY, cardW, cardH, Math.min(12, cardH * 0.14))
+      ctx.fill()
+      ctx.strokeStyle = level === snapshot.player.level ? '#65e7ea' : 'rgba(157,222,229,.26)'
+      ctx.lineWidth = level === snapshot.player.level ? 2.4 : 1
+      ctx.stroke()
+      const maxFishW = Math.max(1, Math.min(cardW * 0.72, (cardH * 0.5) / GAME_CONFIG.player.bodyAspect))
+      const fishWidth = maxFishW * playerSizeScale(level) / maxScale
+      this.drawFishShape({
+        x: cardX + cardW * 0.5,
+        y: cardY + cardH * 0.43,
+        width: fishWidth,
+        height: fishWidth * GAME_CONFIG.player.bodyAspect,
+        direction: 1,
+        level,
+        visualId: index,
+        spawnSeq: index + 1
+      }, null)
+      ctx.fillStyle = COLORS.ink
+      if (cardW >= 100) {
+        ctx.font = `800 ${Math.max(10, Math.min(14, cardH * 0.13))}px sans-serif`
+        ctx.fillText(`Lv.${level} · ${FISH_LEVEL_VISUALS[index].name}`, cardX + cardW / 2, cardY + cardH * 0.84)
+      } else {
+        ctx.font = `800 ${Math.max(9, Math.min(12, cardH * 0.12))}px sans-serif`
+        ctx.fillText(`Lv.${level}`, cardX + cardW / 2, cardY + cardH * 0.77)
+        ctx.fillStyle = COLORS.muted
+        ctx.font = `600 ${Math.max(8, Math.min(11, cardH * 0.105))}px sans-serif`
+        ctx.fillText(FISH_LEVEL_VISUALS[index].name, cardX + cardW / 2, cardY + cardH * 0.91)
+      }
+    }
+    this.drawIconButton(uiRects(snapshot.layout, 'CATALOG').catalogClose, '×', true)
+    ctx.restore()
+  }
+
+  drawCatalogButton(rect) {
+    if (!rect) return
+    const { ctx } = this
+    const centerX = rect.x + rect.width / 2
+    const centerY = rect.y + rect.height / 2
+    ctx.save()
+    ctx.fillStyle = 'rgba(88,222,224,.24)'
+    this.roundedRect(rect.x, rect.y, rect.width, rect.height, 12)
+    ctx.fill()
+    ctx.strokeStyle = '#89f3ef'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.fillStyle = '#dfffff'
+    ctx.beginPath()
+    ctx.moveTo(centerX - 5, centerY - 2)
+    ctx.lineTo(centerX - 12, centerY - 7)
+    ctx.lineTo(centerX - 11, centerY + 3)
+    ctx.closePath()
+    ctx.fill()
+    ctx.beginPath()
+    ctx.ellipse(centerX + 2, centerY - 2, 9, 5.5, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#07384a'
+    ctx.beginPath()
+    ctx.arc(centerX + 6, centerY - 3, 1.3, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = '#dfffff'
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    ctx.moveTo(centerX - 10, centerY + 8)
+    ctx.quadraticCurveTo(centerX - 5, centerY + 5, centerX, centerY + 8)
+    ctx.quadraticCurveTo(centerX + 5, centerY + 5, centerX + 10, centerY + 8)
+    ctx.stroke()
     ctx.restore()
   }
 
@@ -668,4 +936,4 @@ class CanvasRenderer {
   }
 }
 
-module.exports = { CanvasRenderer }
+module.exports = { CanvasRenderer, FISH_LEVEL_VISUALS, fishVisualForLevel }

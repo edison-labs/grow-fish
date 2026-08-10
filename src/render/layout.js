@@ -37,6 +37,30 @@ function computeLayout(viewport = {}) {
   }
 }
 
+function catalogGeometry(layout) {
+  const outer = clamp(Math.min(layout.width, layout.height) * 0.025, 8, 18)
+  const safeLeft = layout.playable.left
+  const safeRight = layout.playable.right
+  const safeTop = Math.max(0, layout.safeTop || 0)
+  const safeBottom = layout.playable.bottom
+  const safeWidth = Math.max(1, safeRight - safeLeft)
+  const safeHeight = Math.max(1, safeBottom - safeTop)
+  const width = Math.max(1, Math.min(1000, safeWidth - outer * 2))
+  const height = Math.max(1, Math.min(520, safeHeight - outer * 2))
+  const x = safeLeft + (safeWidth - width) / 2
+  const y = safeTop + (safeHeight - height) / 2
+  const closeSize = Math.min(44, Math.max(1, height - 16))
+  const preferredCloseX = x + width - closeSize - 8
+  const capsuleCloseX = layout.menuButton ? layout.menuButton.left - closeSize - 8 : preferredCloseX
+  const close = {
+    x: Math.max(x + 8, Math.min(preferredCloseX, capsuleCloseX)),
+    y: y + 8,
+    width: closeSize,
+    height: closeSize
+  }
+  return { x, y, width, height, outer, close }
+}
+
 function uiRects(layout, screenState) {
   const w = layout.width
   const h = layout.height
@@ -52,9 +76,14 @@ function uiRects(layout, screenState) {
   }
   const menuLeft = layout.menuButton ? layout.menuButton.left : safeRight
   const pauseX = Math.max(safeLeft + 120, Math.min(safeRight - 54, menuLeft - 58))
+  const catalogX = Math.max(safeLeft + 12, pauseX - 54)
   if (screenState === 'HOME') return { ...settings, start: center(h * 0.58) }
-  if (screenState === 'RUNNING') return { pause: { x: pauseX, y: top, width: 46, height: 38 } }
+  if (screenState === 'RUNNING') return {
+    catalog: { x: catalogX, y: top, width: 46, height: 38 },
+    pause: { x: pauseX, y: top, width: 46, height: 38 }
+  }
   if (screenState === 'PAUSED') return { resume: center(h * 0.44), quit: center(h * 0.61) }
+  if (screenState === 'CATALOG') return { catalogClose: catalogGeometry(layout).close }
   if (screenState === 'RESULT') return { ...settings, retry: center(h * 0.62), home: center(h * 0.78) }
   return {}
 }
@@ -69,4 +98,4 @@ function hitUi(layout, state, x, y) {
   return null
 }
 
-module.exports = { computeLayout, uiRects, pointInRect, hitUi }
+module.exports = { computeLayout, catalogGeometry, uiRects, pointInRect, hitUi }

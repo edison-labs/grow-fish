@@ -5,6 +5,7 @@ const assert = require('node:assert/strict')
 const { GAME_CONFIG } = require('../src/config/game-config')
 const { GameCore } = require('../src/core/game-core')
 const { clamp, ellipsesOverlap } = require('../src/core/math')
+const { fishVisualMargins } = require('../src/core/entities')
 const { FakePlatform } = require('../src/platform/fake-platform')
 const { AudioManager } = require('../src/audio/audio-manager')
 
@@ -29,17 +30,45 @@ function independentFishBody(core, fish, elapsed) {
   if (elapsed <= 0) return { x: fish.x, y: fish.y, rx: fish.width * 0.35, ry: fish.height * 0.35 }
   const bounds = core.layout.playable
   const age = fish.age + elapsed
+  const visual = fishVisualMargins(fish)
   return {
     x: fish.x + fish.vx * elapsed,
     y: clamp(
       fish.baseY + Math.sin(fish.phase + (age * Math.PI * 2) / fish.period) * fish.amplitude,
-      bounds.top + fish.height * 0.5,
-      bounds.bottom - fish.height * 0.5
+      bounds.top + visual.top,
+      bounds.bottom - visual.bottom
     ),
     rx: fish.width * 0.35,
     ry: fish.height * 0.35
   }
 }
+
+test('R2 regression: safety prediction and real fish motion share outlined vertical limits', () => {
+  const core = startWorld(20260816)
+  for (const edge of ['top', 'bottom']) {
+    core.releaseAllEntities()
+    const fish = core.acquireFish(10, 'left', false)
+    fish.active = true
+    fish.entering = false
+    fish.x = (core.layout.playable.left + core.layout.playable.right) / 2
+    fish.vx = 0
+    fish.age = 0
+    fish.period = 2
+    fish.amplitude = fish.height * 4
+    fish.phase = edge === 'top' ? -Math.PI / 2 : Math.PI / 2
+    fish.baseY = edge === 'top' ? core.layout.playable.top : core.layout.playable.bottom
+    fish.y = fish.baseY
+    const predicted = core.predictedFishBody(fish, dt)
+    core.updateFish(dt)
+    const visual = fishVisualMargins(fish)
+    assert.equal(fish.y, predicted.y, `${edge} predicted y`)
+    assert.equal(
+      fish.y,
+      edge === 'top' ? core.layout.playable.top + visual.top : core.layout.playable.bottom - visual.bottom,
+      `${edge} outlined limit`
+    )
+  }
+})
 
 function currentPathCollides(core, fish) {
   const bounds = core.layout.playable

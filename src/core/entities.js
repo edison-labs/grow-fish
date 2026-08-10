@@ -88,11 +88,12 @@ function fishBody(fish) {
 
 function fishVisualMargins(fish) {
   const facingRight = (fish.direction || 1) >= 0
+  const strokePadding = Math.max(2.2, fish.height * 0.045) / 2
   return {
-    left: fish.width * (facingRight ? 0.65 : 0.42),
-    right: fish.width * (facingRight ? 0.42 : 0.65),
-    top: fish.height * 0.5,
-    bottom: fish.height * 0.5
+    left: fish.width * (facingRight ? 0.65 : 0.42) + strokePadding,
+    right: fish.width * (facingRight ? 0.42 : 0.65) + strokePadding,
+    top: fish.height * 0.5 + strokePadding,
+    bottom: fish.height * 0.5 + strokePadding
   }
 }
 

@@ -6,6 +6,7 @@ const { GAME_CONFIG, upgradeNeed } = require('../src/config/game-config')
 const { GameCore } = require('../src/core/game-core')
 const { FakePlatform } = require('../src/platform/fake-platform')
 const { TestHarness } = require('../src/debug/test-harness')
+const { uiRects } = require('../src/render/layout')
 
 const fixedDt = 1 / GAME_CONFIG.tickRate
 
@@ -220,4 +221,87 @@ test('后台切换会暂停，横屏恢复后需显式继续', () => {
   assert.equal(core.screenState, 'PAUSED')
   assert.equal(core.resume(), true)
   assert.equal(core.screenState, 'RUNNING')
+})
+
+test('图鉴可由点击或动作进入 PAUSED/CATALOG，冻结玩法并由关闭按钮恢复', () => {
+  const { core } = makeWorld(20260820)
+  core.invincibleRemaining = 0.5
+  core.pPlus2Protection = 1.5
+  core.stats.comboTimer = 2.5
+  const catalog = uiRects(core.layout, 'RUNNING').catalog
+  core.handlePointer('start', { id: 41, x: catalog.x + catalog.width / 2, y: catalog.y + catalog.height / 2 })
+  core.handlePointer('end', { id: 41, x: catalog.x + catalog.width / 2, y: catalog.y + catalog.height / 2 })
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+  assert.equal(core.interactionState(), 'CATALOG')
+
+  const frozen = {
+    tick: core.tick,
+    runClock: core.runClock,
+    invincibleRemaining: core.invincibleRemaining,
+    pPlus2Protection: core.pPlus2Protection,
+    comboTimer: core.stats.comboTimer,
+    fish: compactFish(core)
+  }
+  core.update(1)
+  assert.equal(core.tick, frozen.tick)
+  assert.equal(core.runClock, frozen.runClock)
+  assert.equal(core.invincibleRemaining, frozen.invincibleRemaining)
+  assert.equal(core.pPlus2Protection, frozen.pPlus2Protection)
+  assert.equal(core.stats.comboTimer, frozen.comboTimer)
+  assert.deepEqual(compactFish(core), frozen.fish)
+
+  const close = uiRects(core.layout, 'CATALOG').catalogClose
+  core.handlePointer('start', { id: 42, x: close.x + close.width / 2, y: close.y + close.height / 2 })
+  core.handlePointer('end', { id: 42, x: close.x + close.width / 2, y: close.y + close.height / 2 })
+  assert.equal(core.screenState, 'RUNNING')
+  assert.equal(core.pauseView, null)
+
+  core.handleAction('catalog')
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+  core.handleAction('catalogClose')
+  assert.equal(core.screenState, 'RUNNING')
+  assert.equal(core.pauseView, null)
+})
+
+test('竖屏图鉴关闭失败时保留 CATALOG，恢复横屏后才允许关闭', () => {
+  const { core } = makeWorld(20260821)
+  core.handleAction('catalog')
+  core.resize({ width: 450, height: 800, dpr: 1, safeArea: null, menuButton: null })
+  assert.equal(core.orientationBlocked, true)
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+  core.handleAction('catalogClose')
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+
+  core.resize({ width: 800, height: 450, dpr: 1, safeArea: null, menuButton: null })
+  assert.equal(core.orientationBlocked, false)
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+  core.handleAction('catalogClose')
+  assert.equal(core.screenState, 'RUNNING')
+  assert.equal(core.pauseView, null)
+})
+
+test('图鉴中切后台保持冻结，重新开局和退出都会清理 pauseView', () => {
+  const { core } = makeWorld(20260822)
+  core.handleAction('catalog')
+  core.onHide()
+  assert.equal(core.hidden, true)
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+  core.onShow()
+  assert.equal(core.hidden, false)
+  assert.equal(core.screenState, 'PAUSED')
+  assert.equal(core.pauseView, 'CATALOG')
+
+  core.startRun(20260823)
+  assert.equal(core.screenState, 'RUNNING')
+  assert.equal(core.pauseView, null)
+  core.handleAction('catalog')
+  assert.equal(core.quitRun(), true)
+  assert.equal(core.screenState, 'HOME')
+  assert.equal(core.pauseView, null)
 })

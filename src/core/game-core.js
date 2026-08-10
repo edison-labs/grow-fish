@@ -42,6 +42,7 @@ class GameCore {
     this.spawnSeq = 0
     this.screenState = 'HOME'
     this.pausedFrom = null
+    this.pauseView = null
     this.orientationBlocked = !this.layout.isLandscape
     this.hidden = false
     this.resultLocked = false
@@ -91,6 +92,7 @@ class GameCore {
     this.setSeed(seed === undefined ? ((this.platform.now() >>> 0) ^ Math.imul(this.runId, 2654435761)) >>> 0 : seed)
     this.screenState = 'RUNNING'
     this.pausedFrom = null
+    this.pauseView = null
     this.orientationBlocked = !this.layout.isLandscape
     this.resultLocked = false
     this.resultCommitted = false
@@ -195,8 +197,8 @@ class GameCore {
       fish.age += dt
       fish.equalCooldown = decayTimer(fish.equalCooldown, dt)
       fish.x += fish.vx * dt
-      fish.y = clamp(fish.baseY + Math.sin(fish.phase + (fish.age * Math.PI * 2) / fish.period) * fish.amplitude, bounds.top + fish.height * 0.5, bounds.bottom - fish.height * 0.5)
       const visual = fishVisualMargins(fish)
+      fish.y = clamp(fish.baseY + Math.sin(fish.phase + (fish.age * Math.PI * 2) / fish.period) * fish.amplitude, bounds.top + visual.top, bounds.bottom - visual.bottom)
       fish.entering = fish.side === 'left' ? fish.x - visual.left < bounds.left : fish.x + visual.right > bounds.right
       const departed = fish.direction > 0 ? fish.x - visual.left > bounds.right : fish.x + visual.right < bounds.left
       if (departed) this.releaseFish(fish)
@@ -257,7 +259,7 @@ class GameCore {
     fish.level = clamp(Math.floor(level), 1, 10)
     fish.side = side
     fish.direction = side === 'left' ? 1 : -1
-    fish.visualId = randomize ? this.appearanceRng.int(0, 4) : fish.spawnSeq % 5
+    fish.visualId = fish.level - 1
     const size = Math.min(this.layout.width * GAME_CONFIG.player.maxWidthRatio, this.layout.width * GAME_CONFIG.player.baseWidthRatio * playerSizeScale(fish.level))
     fish.width = size
     fish.height = size * GAME_CONFIG.player.bodyAspect
@@ -491,6 +493,7 @@ class GameCore {
     if (this.resultLocked) return
     this.resultLocked = true
     this.screenState = 'DEAD'
+    this.pauseView = null
     this.cinematicClock = 0
     this.input.clear(true)
     this.player.vx = 0
@@ -503,6 +506,7 @@ class GameCore {
     if (this.resultLocked) return
     this.resultLocked = true
     this.screenState = 'WIN'
+    this.pauseView = null
     this.cinematicClock = 0
     this.input.clear(true)
     this.result = this.makeResult(true, null)
@@ -517,6 +521,7 @@ class GameCore {
     if (!this.resultLocked || this.resultCommitted) return
     this.resultCommitted = true
     this.screenState = 'RESULT'
+    this.pauseView = null
     this.result.saved = this.saveManager.commitResult(this.result)
     this.emit('game_result', { ...this.result })
   }
@@ -525,6 +530,7 @@ class GameCore {
     if (this.screenState !== 'RUNNING') return false
     this.pausedFrom = 'RUNNING'
     this.screenState = 'PAUSED'
+    this.pauseView = reason === 'catalog' ? 'CATALOG' : 'MENU'
     this.input.clear(true)
     this.player.vx = 0
     this.player.vy = 0
@@ -536,6 +542,7 @@ class GameCore {
     if (this.screenState !== 'PAUSED' || this.orientationBlocked) return false
     this.screenState = 'RUNNING'
     this.pausedFrom = null
+    this.pauseView = null
     this.input.clear(true)
     this.emit('game_resumed', {})
     return true
@@ -545,6 +552,7 @@ class GameCore {
     if (!['RUNNING', 'PAUSED'].includes(this.screenState)) return false
     this.releaseAllEntities()
     this.screenState = 'HOME'
+    this.pauseView = null
     this.resultLocked = false
     this.resultCommitted = false
     this.result = null
@@ -556,16 +564,20 @@ class GameCore {
   handleAction(action) {
     this.emit('ui_action', { action })
     if (action === 'start' && this.screenState === 'HOME') this.startRun()
+    else if (action === 'catalog' && this.screenState === 'RUNNING') this.pause('catalog')
+    else if (action === 'catalogClose' && this.screenState === 'PAUSED' && this.pauseView === 'CATALOG') this.resume()
     else if (action === 'pause' && this.screenState === 'RUNNING') this.pause('user')
     else if (action === 'resume' && this.screenState === 'PAUSED') this.resume()
     else if (action === 'quit' && this.screenState === 'PAUSED') this.quitRun()
     else if (action === 'retry' && this.screenState === 'RESULT') this.startRun()
-    else if (action === 'home' && this.screenState === 'RESULT') { this.releaseAllEntities(); this.screenState = 'HOME'; this.result = null; this.resultLocked = false; this.resultCommitted = false }
+    else if (action === 'home' && this.screenState === 'RESULT') { this.releaseAllEntities(); this.screenState = 'HOME'; this.pauseView = null; this.result = null; this.resultLocked = false; this.resultCommitted = false }
     else if (action === 'sound') { const enabled = !this.saveManager.data.soundEnabled; this.saveManager.setSoundEnabled(enabled); this.emit('setting_changed', { key: 'soundEnabled', value: enabled }) }
     else if (action === 'haptic') { const enabled = !this.saveManager.data.hapticEnabled; this.saveManager.setHapticEnabled(enabled); this.emit('setting_changed', { key: 'hapticEnabled', value: enabled }) }
   }
 
-  handlePointer(type, pointer) { return this.input.handle(type, pointer, this.layout, this.screenState) }
+  interactionState() { return this.screenState === 'PAUSED' && this.pauseView === 'CATALOG' ? 'CATALOG' : this.screenState }
+
+  handlePointer(type, pointer) { return this.input.handle(type, pointer, this.layout, this.interactionState()) }
 
   onHide() {
     this.hidden = true
@@ -622,6 +634,7 @@ class GameCore {
       grass.y = clamp(grass.y, legal.yMin, legal.yMax)
     }
     this.layout = next
+    this.input.clear(true)
     this.orientationBlocked = !next.isLandscape
     this.updatePlayerDimensions()
     this.clampPlayerToBounds()
@@ -681,9 +694,10 @@ class GameCore {
     const baseY = Number.isFinite(fish.baseY) ? fish.baseY : fish.y
     const amplitude = Number.isFinite(fish.amplitude) ? fish.amplitude : 0
     const phase = Number.isFinite(fish.phase) ? fish.phase : 0
+    const visual = fishVisualMargins(fish)
     const y = moveTime <= 0
       ? fish.y
-      : clamp(baseY + Math.sin(phase + (age * Math.PI * 2) / period) * amplitude, bounds.top + fish.height * 0.5, bounds.bottom - fish.height * 0.5)
+      : clamp(baseY + Math.sin(phase + (age * Math.PI * 2) / period) * amplitude, bounds.top + visual.top, bounds.bottom - visual.bottom)
     return { x: fish.x + fish.vx * moveTime, y, rx: fish.width * 0.35, ry: fish.height * 0.35 }
   }
 
@@ -729,6 +743,7 @@ class GameCore {
     return {
       version: GAME_CONFIG.version,
       screenState: this.screenState,
+      pauseView: this.pauseView,
       orientationBlocked: this.orientationBlocked,
       layout: this.layout,
       tick: this.tick,

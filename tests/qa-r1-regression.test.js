@@ -20,7 +20,7 @@ const dt = 1 / GAME_CONFIG.tickRate
 
 function makeCanvas() {
   const gradient = { addColorStop() {} }
-  const methods = ['arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'quadraticCurveTo', 'restore', 'rotate', 'save', 'scale', 'setTransform', 'stroke', 'translate']
+  const methods = ['arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'quadraticCurveTo', 'restore', 'rotate', 'save', 'scale', 'setTransform', 'stroke', 'translate']
   const context = { createLinearGradient: () => gradient }
   for (const method of methods) context[method] = () => {}
   return { width: 0, height: 0, getContext: () => context }
@@ -66,7 +66,7 @@ function makeRecordingCanvas() {
     ellipse(x, y, rx, ry, rotation, start, end) { calls.ellipses.push({ x, y, rx, ry, effectiveRx: Math.abs(rx * this.scaleX), effectiveRy: Math.abs(ry * this.scaleY) }); calls.ops.push(['ellipse', x, y, rx, ry, rotation, start, end]) },
     fillText(value, x, y) { calls.texts.push({ value: String(value), x, y, font: this.font, scaleX: this.scaleX, scaleY: this.scaleY }); calls.ops.push(['fillText', String(value), x, y, this.font, this.scaleX, this.scaleY]) }
   }
-  for (const method of ['beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'fill', 'fillRect', 'lineTo', 'moveTo', 'quadraticCurveTo', 'stroke']) context[method] = (...args) => { calls.ops.push([method, ...args]) }
+  for (const method of ['beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'fill', 'fillRect', 'lineTo', 'moveTo', 'quadraticCurveTo', 'stroke']) context[method] = (...args) => { calls.ops.push([method, ...args]) }
   return { width: 0, height: 0, calls, getContext: () => context }
 }
 
@@ -327,7 +327,9 @@ test('QA BUG-R1-014: HUD controls stay inside the platform top safe inset', () =
   const running = uiRects(layout, 'RUNNING')
   assert.equal(home.sound.y >= viewport.safeArea.top, true)
   assert.equal(home.haptic.y >= viewport.safeArea.top, true)
+  assert.equal(running.catalog.y >= viewport.safeArea.top, true)
   assert.equal(running.pause.y >= viewport.safeArea.top, true)
+  assert.equal(running.catalog.x + running.catalog.width <= running.pause.x, true)
 })
 
 test('QA BUG-R1-015: eating at exactly three seconds continues the combo', () => {
@@ -446,16 +448,19 @@ test('QA BUG-R1-025: the level-up size transition begins at the old visual size'
   const { core, harness } = makeWorld(64006)
   const canvas = makeRecordingCanvas()
   const renderer = new CanvasRenderer(canvas)
-  renderer.drawPlayer(core.snapshot())
-  const oldRadius = canvas.calls.ellipses[0].effectiveRx
-  canvas.calls.ellipses.length = 0
+  const previous = core.snapshot()
+  renderer.drawPlayer(previous)
+  const previousPlayerScale = canvas.calls.scales[0].x
+  const previousVisualWidth = previous.player.width * previousPlayerScale
+  canvas.calls.scales.length = 0
   harness.setPlayer({ level: 2 })
   core.levelUpRemaining = GAME_CONFIG.timing.levelUpVisual
   const upgraded = core.snapshot()
   renderer.consumeEvents([{ type: 'level_up', data: { previous: 1, level: 2 } }], upgraded)
   renderer.drawPlayer(upgraded)
-  const transitionStartRadius = canvas.calls.ellipses[0].effectiveRx
-  assert.equal(transitionStartRadius <= oldRadius * 1.01, true)
+  const transitionPlayerScale = canvas.calls.scales[0].x
+  const transitionStartVisualWidth = upgraded.player.width * transitionPlayerScale
+  assert.equal(Math.abs(transitionStartVisualWidth - previousVisualWidth) <= previousVisualWidth * 0.01, true)
 })
 
 test('QA BUG-R1-026: short audio voices enforce the six-instance concurrency cap', () => {
@@ -574,10 +579,15 @@ test('QA BUG-R1-030: WeChat viewport lookup falls back when getWindowInfo throws
 
 test('QA BUG-R1-030: malformed viewport dimensions and DPR fall back to finite positive geometry', () => {
   const layout = computeLayout({ width: Number.NaN, height: Number.NEGATIVE_INFINITY, dpr: -3, safeArea: null, menuButton: { left: Number.NaN } })
-  const pause = uiRects(layout, 'RUNNING').pause
-  assert.equal([layout.width, layout.height, layout.dpr, layout.playable.left, layout.playable.top, layout.playable.right, layout.playable.bottom, pause.x, pause.y].every(Number.isFinite), true)
+  const running = uiRects(layout, 'RUNNING')
+  const controls = [running.catalog, running.pause]
+  assert.equal([
+    layout.width, layout.height, layout.dpr, layout.playable.left, layout.playable.top, layout.playable.right, layout.playable.bottom,
+    ...controls.flatMap((rect) => [rect.x, rect.y, rect.width, rect.height])
+  ].every(Number.isFinite), true)
   assert.equal(layout.width >= 1 && layout.height >= 1 && layout.dpr > 0, true)
   assert.equal(layout.playable.left < layout.playable.right && layout.playable.top < layout.playable.bottom, true)
+  assert.equal(running.catalog.x + running.catalog.width <= running.pause.x, true)
 })
 
 test('QA BUG-R1-030: malformed getWindowInfo data falls back to valid legacy system info', () => {
@@ -591,9 +601,13 @@ test('QA BUG-R1-030: malformed getWindowInfo data falls back to valid legacy sys
   assert.equal(viewport.height, 390)
   assert.equal(viewport.dpr, 3)
   const layout = computeLayout(viewport)
-  const pause = uiRects(layout, 'RUNNING').pause
-  assert.equal([pause.x, pause.y, pause.width, pause.height].every(Number.isFinite), true)
-  assert.equal(pause.x >= layout.playable.left && pause.x + pause.width <= layout.playable.right, true)
+  const running = uiRects(layout, 'RUNNING')
+  for (const rect of [running.catalog, running.pause]) {
+    assert.equal([rect.x, rect.y, rect.width, rect.height].every(Number.isFinite), true)
+    assert.equal(rect.x >= layout.playable.left && rect.x + rect.width <= layout.playable.right, true)
+    assert.equal(rect.y >= layout.safeTop, true)
+  }
+  assert.equal(running.catalog.x + running.catalog.width <= running.pause.x, true)
 })
 
 test('QA BUG-R1-031: quitting a run clears every active short-audio voice', () => {
