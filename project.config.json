@@ -1,0 +1,16 @@
+{
+  "description": "大鱼吃小鱼 V0.1 原生微信小游戏",
+  "compileType": "game",
+  "libVersion": "2.25.3",
+  "appid": "touristappid",
+  "projectname": "grow-fish",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "minified": true,
+    "postcss": false,
+    "compileHotReLoad": true
+  }
+}
+

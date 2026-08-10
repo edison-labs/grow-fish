@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>大鱼吃小鱼 · 同核预览</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#031a2b;color:#fff;font-family:system-ui,-apple-system,"PingFang SC",sans-serif;touch-action:none}
+    #game{display:block;width:100%;height:100%;touch-action:none}
+    #rotate{display:none;position:fixed;inset:0;place-items:center;background:#031a2bf2;font-size:20px;z-index:5;text-align:center;padding:24px}
+    @media (orientation:portrait){#rotate{display:grid}}
+  </style>
+</head>
+<body>
+  <canvas id="game" aria-label="大鱼吃小鱼游戏画布"></canvas>
+  <div id="rotate">请旋转设备至横屏<br><small>回到横屏后点击继续</small></div>
+  <script src="./app.js"></script>
+</body>
+</html>
+
