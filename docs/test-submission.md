@@ -4,24 +4,29 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 轮次 | R2 |
-| 提测日期 | 2026-08-01 |
+| 轮次 | R3 |
+| 提测日期 | 2026-08-10 |
 | 版本 | 0.1.0 |
+| 首个 Git 基线提交 | `e94897f` |
+| R3 候选标签 | `v0.1.0-r3-candidate.1`（由标签解析最终候选提交） |
 | 配置哈希 | `1768c34e` |
 | 构建 | `npm run build` 生成的 debug 提测版 |
-| 微信 debug SHA-256 | `7f502077ad1a5430f876bea3b2556057abe0427a7473e88ffaf34d78e4536223` |
-| Web debug SHA-256 | `68d1bcf4a182c74cb7d95fdee5a0bdd3b89d4ad67d916314df27c419b9f466b5` |
-| 微信 release 验证 SHA-256 | `c3d46378c67212a26b93a4ede5122e9d7356f92d64dc059879c87ce119450d25` |
-| Web release 验证 SHA-256 | `a7313c182c11b5fd7cd0e8a1b7c41bdf79541acc4e186aec47cbcdc9d2e43227` |
+| 微信 debug SHA-256 | `647fcf2156397684f032558ae5666cd81a845801e60db9c4f3de28bd9a526528` |
+| Web debug SHA-256 | `37316e5f5208fd2b2289b16606dbdb7aacc6596ae8ea3bcf61c710a7ea8dc936` |
+| 微信 release 验证 SHA-256 | `2703e705c8acc798dc80e07f95907da9f347196ab92239ef8dc7ab1a55b64d63` |
+| Web release 验证 SHA-256 | `fe6d52b4f1a64a8a9e58b6582db375762517b2fab8cc86f296111fc93f3ec58a` |
 | 测试方案 | `docs/test-plan.md`（156 条设计用例） |
 | 研发证据 | `docs/development-self-test.md` |
+| R3 缺陷 / 执行记录 | `docs/bugs-r3.md` / `docs/test-execution-r3.md` |
 | 数据变更 | 新增本地键 `growFish.save.v1`，schemaVersion=1；无后端/数据库 |
 | 账号/网络 | 无账号、无业务网络请求 |
 
-当前工作区尚未形成可引用的 Git 提交哈希。测试以本单 debug bundle SHA-256 和配置哈希识别 R2 候选包，避免与 R1 或临时 release 产物混测。仓库最终保留的是 debug 提测包。
+仓库已形成首个基线提交 `e94897f`；最终 R3 候选提交以标签 `v0.1.0-r3-candidate.1` 解析，不在文档中硬编码以避免提交自引用。测试仍须同时校验本单 debug bundle SHA-256 和配置哈希，以识别 R3 候选包并避免与 R1/R2 或临时 release 产物混测。当前仓库 `dist` 保留的是 debug 提测包，包含 sourcemap 和调试入口；表中的 release 哈希只标识隔离验证产物。
 
-### R2 变更摘要
+### R3 变更摘要
 
+- 关闭 BUG-R3-001～005：音频 Promise 拒绝处理、微信可选 FPS/日志 API 异常隔离、release 调试入口隔离、resize 水草合法重排、视口 API 双失败默认值/最后有效值回退。
+- 新增 `tests/r3-release-compat.test.js` 的 7 条定点回归；完整 Node 门禁由 68 条增至 75 条。
 - 关闭 BUG-R1-001～031：安全出生/生成节流/弹开、性能滑窗、完整轮廓与布局、输入和生命周期、成长/反馈、音频上限与优先级、跨局清理、微信视口异常降级。
 - 新增 128 seeds 初始草布局和 160 seeds 生产参数危险出生属性回归。
 - 发布构建会主动移除旧 debug sourcemap；新增 `npm run smoke:wechat:release` 验证测试接口不可达。
@@ -74,20 +79,21 @@ SpawnDecisionTrace 含 tick、玩家等级、计数、开局/P+2 保护、RNG �
 
 ## 5. 研发已执行
 
-- `npm run verify`：68/68 通过，0 失败；debug 构建和微信 bundle smoke 通过。
+- `npm run verify`：75/75 通过，0 失败；debug/release 双端构建与对应微信 bundle smoke 通过，最后恢复 debug `dist`。
+- R3 定点回归：7/7 通过，覆盖 BUG-R3-001～005。
 - 独立 QA 冻结回归：41/41 通过，覆盖 BUG-R1-001～031。
 - 属性回归：128 seeds 初始草布局、160 seeds 危险出生预测/实际窗口通过。
 - 实际微信 debug bundle 冒烟：HOME、开局、首 tick 补鱼、暂停/继续、resize 后暂停通过。
 - Canvas 全状态渲染 smoke：通过。
 - 100 局无渲染稳定性：通过，实体池不扩容。
-- Web debug bundle 与 `index.html` 已生成；最终 R2 的本地 HTTP 监听受当前沙箱限制，需测试环境执行页面级复验。
+- Web debug bundle 与 `index.html` 已生成；仍需测试环境执行页面级和人工视觉复验。
 - release smoke：通过，`debugHarness=false`；无 `.map` 和测试接口符号。
 
-以上仅为研发自测，独立测试尚未在本提测单中宣告通过。
+以上仅证明本地代码与构建门禁；外部真机、性能/长稳和产品人工验收尚未在本提测单中宣告通过。
 
 ## 6. 已知限制与外部门禁
 
-1. 缺少正式 AppID、体验版权限、微信开发者工具实机结果与目标真机；相关用例状态应为“待环境验证”，不是“通过”。
+1. 缺少正式 AppID、体验版权限、微信开发者工具实机结果与目标真机；相关用例状态为 **Blocked**，不是“通过”。
 2. 当前会话无可连接浏览器实例，未附浏览器截图；测试应在开发者工具/真机保留关键路径截图或录屏。
 3. 真机兼容、音频/震动、系统中断、最低设备 FPS/P95、内存增长和 30 分钟 soak 尚未执行。
 4. 程序化音频在 WebAudio 不可用时静默；需确认目标真机均符合产品可接受的降级体验。
@@ -95,12 +101,12 @@ SpawnDecisionTrace 含 tick、玩家等级、计数、开局/P+2 保护、RNG �
 
 ## 7. 建议测试顺序
 
-1. 校验候选文件哈希、配置哈希及 `npm run verify`。
+1. 解析并校验标签 `v0.1.0-r3-candidate.1`，同时核对首个基线 `e94897f`、候选文件哈希、配置哈希及 `npm run verify`。
 2. 执行 `SMK-001`～`SMK-005`，分别完成死亡局与调试通关局。
 3. 执行 P0/P1 功能、随机公平性、生命周期、存储异常和适配用例。
 4. 完成基础库/客户端/系统/设备矩阵以及左右横屏、安全区、音频震动。
 5. 在最低支持真机执行 D25 性能、10 局和 30 分钟稳定性。
-6. 缺陷定点验证与影响域回归后输出独立测试报告，决定是否建议产品验收。
+6. 定点复验 BUG-R3-001～005 及影响域，关闭所有外部 Blocked 门禁后输出独立测试与产品准出结论。
 
 ## 8. 缺陷回传字段
 

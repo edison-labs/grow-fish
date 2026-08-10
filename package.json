@@ -11,9 +11,11 @@
     "preview:web": "node scripts/serve.mjs",
     "test": "node --test tests/*.test.js",
     "test:core": "node --test tests/core.test.js",
+    "test:r3": "node --test tests/r3-release-compat.test.js",
     "smoke:wechat": "node scripts/wechat-bundle-smoke.mjs",
     "smoke:wechat:release": "node scripts/wechat-bundle-smoke.mjs --release",
-    "verify": "npm test && npm run build && npm run smoke:wechat"
+    "verify": "node scripts/verify-r3.mjs",
+    "verify:r3": "node scripts/verify-r3.mjs"
   },
   "engines": {
     "node": ">=22.23.0"

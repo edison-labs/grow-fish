@@ -2,6 +2,13 @@
 
 原生 Canvas 2D 微信小游戏实现。玩家从 Lv.1 吃水草起步，随后吞食低等级鱼、躲避高等级鱼，死亡或升至 Lv.10 后进入结算，可立即重开。项目同时提供浏览器同核预览；两端共用状态机、生成、碰撞、数值和渲染代码，仅平台适配层不同。
 
+## 当前进度
+
+- 当前为 **V0.1 R3 本地代码候选**，候选标签为 `v0.1.0-r3-candidate.1`，不是正式发布版本。
+- 本地自动化 75/75 通过；Debug/Release 双构建及对应微信 bundle smoke 均通过。
+- 正式 AppID、微信开发者工具、真机兼容与性能、30 分钟 soak、人工产品验收仍待外部环境完成。
+- 候选证据见 [R3 测试执行记录](docs/test-execution-r3.md)、[R3 缺陷清单](docs/bugs-r3.md)和[正式提测单](docs/test-submission.md)。
+
 ## 运行基线
 
 - 微信小游戏基础库：2.25.3+
@@ -15,15 +22,14 @@
 
 ```bash
 npm ci
-npm test
-npm run build
-npm run smoke:wechat
+npm run verify
 ```
 
 - `npm test`：公式、状态机、碰撞优先级、生成、公平性、存储、输入、渲染和 100 局稳定性回归。
+- `npm run test:r3`：单独执行 BUG-R3-001～005 的 7 条定点回归。
 - `npm run build`：生成带测试接口的 `dist/wechat/game.js` 和 `dist/web/app.js`。
 - `npm run smoke:wechat`：在最小微信 API 模拟环境中加载实际 bundle，验证首页、开局首帧、暂停、继续和 resize。
-- `npm run verify`：依次执行上述核心门禁。
+- `npm run verify`：执行全部测试、Debug 构建与 smoke、Release 构建与 smoke，并在结束时恢复 Debug `dist`；这是 R3 本地完整门禁。
 - `npm run build:release`：生成压缩发布候选，移除 `__growFishDebug` 和 TestHarness。
 - `npm run smoke:wechat:release`：加载 release 微信 bundle 并断言完整闭环可运行且测试接口不存在。
 - `npm run preview:web`：在 `http://127.0.0.1:4173` 启动浏览器预览。
@@ -80,4 +86,4 @@ __growFishDebug.toggleDebug(true)
 
 ## 交付边界
 
-源码、自动化、微信 bundle 和浏览器同核预览已具备。正式 AppID、微信体验版权限、开发者工具实机导入、iOS/Android 兼容矩阵、真机性能以及发布审核属于外部门禁，必须由测试与项目主体完成后才能宣称发布可用。
+源码、自动化、微信 bundle 和浏览器同核预览已具备。正式 AppID、微信体验版权限、开发者工具导入、iOS/Android 真机兼容与性能、30 分钟 soak、人工产品验收及发布审核属于外部门禁，必须由测试与项目主体完成后才能宣称发布可用。
