@@ -6,7 +6,7 @@
 
 - 当前工作区为 **V0.1 R4 等级视觉迭代**，基于 R3 候选标签 `v0.1.0-r3-candidate.1`，尚未生成新的候选标签或正式发布版本。
 - 本地自动化 91/91 通过；Debug/Release 双构建及对应微信 bundle smoke 均通过。
-- 正式 AppID、微信开发者工具、真机兼容与性能、30 分钟 soak、人工产品验收仍待外部环境完成。
+- 正式 AppID 已配置；微信开发者工具、体验版权限、真机兼容与性能、30 分钟 soak、人工产品验收仍待外部环境完成。
 - 已冻结的基线候选证据见 [R3 测试执行记录](docs/test-execution-r3.md)、[R3 缺陷清单](docs/bugs-r3.md)和[正式提测单](docs/test-submission.md)；本轮等级视觉回归见 `tests/r4-visual-identity.test.js`。
 
 ## 运行基线
@@ -38,7 +38,7 @@ npm run verify
 
 1. 先执行 `npm ci && npm run build`。
 2. 在微信开发者工具中导入本仓库根目录，项目类型选择“小游戏”。
-3. `project.config.json` 默认使用 `touristappid`；体验版或真机调试前必须替换为项目主体提供的合法 AppID。
+3. `project.config.json` 已配置项目主体提供的正式 AppID；体验版或真机调试仍需使用具备该项目权限的微信账号。
 4. 默认构建为提测调试版；发布前执行 `npm run build:release` 并重新完成冒烟与真机回归。
 
 ## 操作
@@ -89,4 +89,4 @@ __growFishDebug.toggleDebug(true)
 
 ## 交付边界
 
-源码、自动化、微信 bundle 和浏览器同核预览已具备。正式 AppID、微信体验版权限、开发者工具导入、iOS/Android 真机兼容与性能、30 分钟 soak、人工产品验收及发布审核属于外部门禁，必须由测试与项目主体完成后才能宣称发布可用。
+源码、自动化、微信 bundle、正式 AppID 配置和浏览器同核预览已具备。微信体验版权限、开发者工具导入、iOS/Android 真机兼容与性能、30 分钟 soak、人工产品验收及发布审核属于外部门禁，必须由测试与项目主体完成后才能宣称发布可用。

@@ -2,9 +2,9 @@
 
 ## 1. 文档状态与结论
 
-- 状态：V0.1 R3 本地代码候选对应技术方案；需求基线为策划案 V0.1 与产品 D01–D25。
+- 状态：V0.1 R4 本地代码候选对应技术方案；需求基线为策划案 V0.1 与产品 D01–D25。
 - 结论：采用原生微信小游戏 Canvas 2D + CommonJS 纯 JavaScript；微信端与浏览器端共享同一核心、配置和渲染器。
-- 本地自动化 75/75、Debug/Release 双构建及对应微信 bundle smoke 已通过；正式 AppID、微信开发者工具、真机兼容与性能、30 分钟 soak、人工产品验收尚未完成，因此不代表正式发布。
+- 本地自动化 91/91、Debug/Release 双构建及对应微信 bundle smoke 已通过，正式 AppID 已配置；微信开发者工具、真机兼容与性能、30 分钟 soak、人工产品验收尚未完成，因此不代表正式发布。
 - 非目标：DOM/CSS 玩法、第三方游戏引擎、后端、登录、广告、支付、云存档、排行和联网埋点。
 
 ## 2. 技术选型与版本基线
@@ -28,7 +28,7 @@
 grow-fish/
 ├── game.js                    # 微信入口，加载微信 bundle
 ├── game.json                  # landscape、无状态栏
-├── project.config.json        # compileType=game，默认 touristappid
+├── project.config.json        # compileType=game，配置正式 AppID
 ├── package.json / package-lock.json
 ├── src/
 │   ├── core/                  # 状态、时钟、实体、成长、得分；无平台依赖
@@ -48,7 +48,7 @@ grow-fish/
 └── dist/wechat/、dist/web/    # 可复现构建产物
 ```
 
-微信开发者工具直接导入仓库根目录；`project.config.json` 使用 `touristappid`，真实体验版前由项目方替换 AppID。`npm run preview:web` 提供浏览器同核预览；`npm run build:wechat`、`npm run build:web` 和 `npm test` 为固定入口。
+微信开发者工具直接导入仓库根目录；`project.config.json` 已配置项目主体提供的正式 AppID，上传与体验版操作仍需相应账号权限。`npm run preview:web` 提供浏览器同核预览；`npm run build:wechat`、`npm run build:web` 和 `npm test` 为固定入口。
 
 ## 4. 架构与依赖规则
 
@@ -136,7 +136,7 @@ grow-fish/
 - 连续 10 局后活跃对象/监听器无增长，内存增量不超过首局稳定基线的 10% 或 20MB（取更宽者），无崩溃、黑屏和输入失效。
 - 调试面板提供滑动窗口 FPS/P95/长帧、池统计和掉帧原因；最终以微信真机性能面板与测试报告为准。
 - 研发准入顺序：配置/核心单测 → 浏览器闭环 → 微信工具导入 → 研发自测 → 正式提测 → 缺陷回归 → 测试报告 → 产品验收。
-- 本机已完成 75/75 自动化、Debug/Release 双构建及对应微信 bundle smoke；正式 AppID、微信开发者工具、体验版、真机兼容与性能、30 分钟 soak、人工产品验收、审核与线上发布仍是外部门禁，未经完成不得宣称已发布。
+- 本机已完成 91/91 自动化、Debug/Release 双构建及对应微信 bundle smoke，正式 AppID 已配置；微信开发者工具、体验版、真机兼容与性能、30 分钟 soak、人工产品验收、审核与线上发布仍是外部门禁，未经完成不得宣称已发布。
 
 ## 12. D01–D25 追溯
 
